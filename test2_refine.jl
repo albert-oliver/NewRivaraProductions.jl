@@ -1,5 +1,4 @@
 using NewRivaraProductions
-using BenchmarkTools
 
 function mark_all_triangles_for_refinement(m)
     for t in m.triangles
@@ -17,11 +16,14 @@ function my_setup(nsteps)
     return m
 end
 
-my_setup(1)
+m = my_setup(20)
 
-BenchmarkTools.DEFAULT_PARAMETERS.seconds = 50
-b = @benchmark NewRivaraProductions.refine!(m) setup=(m = my_setup(18))
-io = IOBuffer()
-show(io, "text/plain", b)
-s = String(take!(io))
-println(s)
+@time NewRivaraProductions.refine!(m)
+
+# using BenchmarkTools
+# BenchmarkTools.DEFAULT_PARAMETERS.seconds = 60
+# b = @benchmark NewRivaraProductions.refine!(m) setup=(m = my_setup(20))
+# io = IOBuffer()
+# show(io, "text/plain", b)
+# s = String(take!(io))
+# println(s)
