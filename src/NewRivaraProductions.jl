@@ -228,6 +228,10 @@ end
 
 p4_remove_broken_triangles!(m::Mesh) = filter!(!istrianglebroken, m.triangles)
 
+function collect_all_edges(m)
+    return collect(Set(reduce(vcat, [t.edges for t in m.triangles])))
+end
+
 function refine!(m::Mesh)
 
     run = true
@@ -235,7 +239,7 @@ function refine!(m::Mesh)
     while run
         run = false
         l_triangles = copy(m.triangles)
-        l_edges = collect(Set(reduce(vcat, getproperty.(m.triangles, :edges))))
+        l_edges = collect_all_edges(m)
 
         Threads.@threads for t in l_triangles
         # for t in l_triangles
