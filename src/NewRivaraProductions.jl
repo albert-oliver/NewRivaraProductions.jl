@@ -1,30 +1,31 @@
 module NewRivaraProductions
 
 using LinearAlgebra
+using StaticArrays
 
 # Write your package code here.
 
-mutable struct Node
-    uvw::AbstractVector{Float64}
-    xyz::AbstractVector{Float64}
+struct Node
+    uvw::SVector{3,Float64}
+    xyz::SVector{3,Float64}
 end
 
 mutable struct Edge
-    nodes::AbstractVector{Base.RefValue{Node}}
+    nodes::SVector{2,Base.RefValue{Node}}
     MR::Bool
     BR::Bool
     NA::Int
-    sons::AbstractVector{Base.RefValue{Edge}}
+    sons::Union{SVector{2,Base.RefValue{Edge}}, Nothing}
 end
 
 mutable struct Triangle
-    edges::AbstractVector{Base.RefValue{Edge}}
+    edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     BR::Bool
 end
 
 mutable struct Mesh
-    triangles::AbstractVector{Triangle}
+    triangles::Vector{Triangle}
 end
 
 function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
@@ -51,7 +52,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             n2 = conec[(j%3)+1, i]
             edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
             if isempty(edge)
-                edge = Ref(Edge([nodes[n1], nodes[n2]], false, false, 1, []))
+                edge = Ref(Edge([nodes[n1], nodes[n2]], false, false, 1, nothing))
                 push!(get!(edges_per_node, n1, []), edge)
                 push!(get!(edges_per_node, n2, []), edge)
             else
@@ -140,7 +141,7 @@ lk = ReentrantLock()
 
 function add_new_triangle!(m::Mesh, t::Triangle)
     lock(lk) do
-    push!(m.triangles, t)
+        push!(m.triangles, t)
     end
 end
 
@@ -173,10 +174,10 @@ function p2_bisect_edge!(edge::Base.RefValue{Edge})
         new_node = Ref(Node(new_coords(edge), new_coords(edge)))
 
         # Generate the first new edge
-        edge1 = Ref(Edge([edge.x.nodes[1], new_node], false, false, edge.x.NA, []))
+        edge1 = Ref(Edge([edge.x.nodes[1], new_node], false, false, edge.x.NA, nothing))
 
         # Generate the second new edge
-        edge2 = Ref(Edge([new_node, edge.x.nodes[2]], false, false, edge.x.NA, []))
+        edge2 = Ref(Edge([new_node, edge.x.nodes[2]], false, false, edge.x.NA, nothing))
 
         # Add the sons of the initial edge
         edge.x.sons = [edge1, edge2]
@@ -210,7 +211,7 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
 
         v1 = common_node(edge4, edge5)[]
         v2 = common_node(edge2, edge3)[]
-        new_edge = Ref(Edge([v1, v2], false, false, 2, []))
+        new_edge = Ref(Edge([v1, v2], false, false, 2, nothing))
 
         triangle1 = Triangle([edge3, edge4, new_edge], false, false)
         add_new_triangle!(m, triangle1)
