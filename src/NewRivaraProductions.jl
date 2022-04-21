@@ -1,12 +1,13 @@
 module NewRivaraProductions
 
 using LinearAlgebra
+using StaticArrays
 
 # Write your package code here.
 
 mutable struct Node
-    uvw::Vector{Float64}
-    xyz::Vector{Float64}
+    uvw::SVector{3,Float64}
+    xyz::SVector{3,Float64}
 end
 
 mutable struct Edge
@@ -15,11 +16,11 @@ mutable struct Edge
     MR::Bool
     BR::Bool
     NA::Int
-    sons::Vector{Int}
+    sons::Union{SVector{2,Int}, Nothing}
 end
 
 mutable struct Triangle
-    edges::Vector{Int}
+    edges::SVector{3,Int}
     MR::Bool
     BR::Bool
 end
@@ -51,11 +52,11 @@ function simpleMesh()
     n2 = Ref(m.nodes[2])
     n3 = Ref(m.nodes[3])
     n4 = Ref(m.nodes[4])
-    push!(m.all_edges, Edge(n1, n2, false, false, 1, []))
-    push!(m.all_edges, Edge(n2, n3, false, false, 1, []))
-    push!(m.all_edges, Edge(n3, n4, false, false, 1, []))
-    push!(m.all_edges, Edge(n4, n1, false, false, 1, []))
-    push!(m.all_edges, Edge(n1, n3, false, false, 2, []))
+    push!(m.all_edges, Edge(n1, n2, false, false, 1, nothing))
+    push!(m.all_edges, Edge(n2, n3, false, false, 1, nothing))
+    push!(m.all_edges, Edge(n3, n4, false, false, 1, nothing))
+    push!(m.all_edges, Edge(n4, n1, false, false, 1, nothing))
+    push!(m.all_edges, Edge(n1, n3, false, false, 2, nothing))
 
     m.edges = 1:Base.length(m.all_edges)
     return m
@@ -124,7 +125,7 @@ function get_edge(m::Mesh, e::Int)
     return m.all_edges[e]
 end
 
-function get_edge(m::Mesh, e::Vector{Int})
+function get_edge(m::Mesh, e::AbstractVector{Int})
     return m.all_edges[e]
 end
 
@@ -193,11 +194,11 @@ function p2_bisect_edge!(m::Mesh, e::Int)
         v3 = add_new_node!(m, new_node)
 
         # Generate the first new edge
-        edge1 = Edge(edge.v1, v3, false, false, edge.NA, [])
+        edge1 = Edge(edge.v1, v3, false, false, edge.NA, nothing)
         e1 = add_new_edge!(m, edge1)
 
         # Generate the second new edge
-        edge2 = Edge(v3, edge.v2, false, false, edge.NA, [])
+        edge2 = Edge(v3, edge.v2, false, false, edge.NA, nothing)
         e2 = add_new_edge!(m, edge2)
 
         # Add the sons of the initial edge
@@ -240,7 +241,7 @@ function p3_bisect_triangle!(m::Mesh, t::Int)
 
         v1 = common_node(edge4, edge5)[]
         v2 = common_node(edge2, edge3)[]
-        new_edge = Edge(v1, v2, false, false, 2, [])
+        new_edge = Edge(v1, v2, false, false, 2, nothing)
         e6 = add_new_edge!(m, new_edge)
 
         triangle1 = Triangle([e3, e4, e6], false, false)
