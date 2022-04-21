@@ -153,7 +153,7 @@ function p1_mark_edges!(triangle::Triangle)
 
     e1, e2, e3 = sort(get_triangle_edges(triangle), rev=true)
 
-    if (!isbroken(e1)) && (triangle.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
+    if (!isbroken(e1)) && (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
         return p2_bisect_edge!(e1)
     else
         return false
