@@ -120,10 +120,6 @@ function Base.isless(e1::Edge, e2::Edge)
     return false
 end
 
-function get_edge_index(m::Mesh, e::Edge)
-    return findfirst(isequal(e), m.all_edges)
-end
-
 function get_edge(m::Mesh, e::Int)
     return m.all_edges[e]
 end
@@ -141,21 +137,26 @@ function get_triangle_edges(m::Mesh, t::Int)
     return m.all_edges[tri.edges]
 end
 
+function get_triangle_edges_idx(m::Mesh, t::Int)
+    tri = m.all_triangles[t]
+    return tri.edges
+end
+
 function add_new_node!(m::Mesh, new_node::Node)
     push!(m.nodes, new_node)
-    return Ref(m.nodes[findlast(isequal(new_node), m.nodes)])
+    return Ref(m.nodes[end])
 end
 
 function add_new_edge!(m::Mesh, e::Edge)
     push!(m.all_edges, e)
-    e1 = findlast(isequal(e), m.all_edges)
+    e1 = Base.length(m.all_edges)
     push!(m.edges, e1)
     return e1
 end
 
 function add_new_triangle!(m::Mesh, t::Triangle)
     push!(m.all_triangles, t)
-    t1 = findlast(isequal(t), m.all_triangles)
+    t1 = Base.length(m.all_triangles)
     push!(m.triangles, t1)
     return t1
 end
@@ -217,23 +218,25 @@ function p3_bisect_triangle!(m::Mesh, t::Int)
         return false
     end
 
-    edge1, edge2, edge3 = sort(get_triangle_edges(m, t), rev=true)
+    e1, e2, e3 = sort(get_triangle_edges_idx(m, t), by=e -> m.all_edges[e], rev=true)
+
+    edge1 = get_edge(m, e1)
+    edge2 = get_edge(m, e2)
+    edge3 = get_edge(m, e3)
 
 
     if edge1.BR
         triangle.MR = false
         triangle.BR = true
 
+        e4, e5 = edge1.sons
         edge4, edge5 = get_edge(m, edge1.sons)
 
         if (isempty(common_node(edge3, edge4)))
             edge4, edge5 = edge5, edge4
+            e4, e5 = e5, e4
         end
 
-        e2 = get_edge_index(m, edge2)
-        e3 = get_edge_index(m, edge3)
-        e4 = get_edge_index(m, edge4)
-        e5 = get_edge_index(m, edge5)
 
         v1 = common_node(edge4, edge5)[]
         v2 = common_node(edge2, edge3)[]
