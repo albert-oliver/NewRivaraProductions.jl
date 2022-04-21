@@ -22,9 +22,10 @@ mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     BR::Bool
+    sons::Union{SVector{2,Triangle}, Nothing}
 end
 
-mutable struct Mesh
+struct Mesh
     triangles::Vector{Triangle}
 end
 
@@ -61,7 +62,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             end
             edges[j] = edge
         end
-        triangles[i] = Triangle(edges, false, false)
+        triangles[i] = Triangle(edges, false, false, nothing)
     end
     return Mesh(triangles)
 end
@@ -137,14 +138,6 @@ function get_triangle_edges(t::Triangle)
     return t.edges
 end
 
-lk = ReentrantLock()
-
-function add_new_triangle!(m::Mesh, t::Triangle)
-    lock(lk) do
-        push!(m.triangles, t)
-    end
-end
-
 function p1_mark_edges!(triangle::Triangle)
 
     if (triangle.BR)
@@ -190,7 +183,7 @@ function p2_bisect_edge!(edge::Base.RefValue{Edge})
     end
 end
 
-function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
+function p3_bisect_triangle!(triangle::Triangle)
 
     if (triangle.BR)
         return false
@@ -213,11 +206,10 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
         v2 = common_node(edge2, edge3)[]
         new_edge = Ref(Edge([v1, v2], false, false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false)
-        add_new_triangle!(m, triangle1)
+        triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing)
+        triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing)
 
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false)
-        add_new_triangle!(m, triangle2)
+        triangle.sons = [triangle1, triangle2]
 
         return true
 
@@ -227,10 +219,18 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
 
 end
 
-p4_remove_broken_triangles!(m::Mesh) = filter!(!istrianglebroken, m.triangles)
+function leaves(t::Triangle)
+    if !isnothing(t.sons)
+        return reduce(vcat, [leaves(t.sons[1]), leaves(t.sons[2])])
+    else
+        return [t]
+    end
+end
 
-function collect_all_edges(m)
-    return collect(Set(reduce(vcat, [t.edges for t in m.triangles])))
+collect_all_triangles(m::Mesh) = mapreduce(leaves, vcat, m.triangles)
+        
+function collect_all_edges(l_triangles)
+    return collect(Set(reduce(vcat, [t.edges for t in l_triangles])))
 end
 
 function refine!(m::Mesh)
@@ -239,8 +239,8 @@ function refine!(m::Mesh)
 
     while run
         run = false
-        l_triangles = copy(m.triangles)
-        l_edges = collect_all_edges(m)
+        l_triangles = collect_all_triangles(m)
+        l_edges = collect_all_edges(l_triangles)
 
         Threads.@threads for t in l_triangles
         # for t in l_triangles
@@ -254,12 +254,11 @@ function refine!(m::Mesh)
 
         Threads.@threads for t in l_triangles
         # for t in l_triangles
-            run |= p3_bisect_triangle!(m, t)
+            run |= p3_bisect_triangle!(t)
         end
 
     end
 
-    p4_remove_broken_triangles!(m)
     return nothing
 
 end
