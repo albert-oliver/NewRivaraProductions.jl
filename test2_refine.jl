@@ -16,14 +16,14 @@ function my_setup(nsteps)
     return m
 end
 
-m = my_setup(20)
+# m = my_setup(20)
+# @time NewRivaraProductions.refine!(m)
 
-@time NewRivaraProductions.refine!(m)
-
-# using BenchmarkTools
-# BenchmarkTools.DEFAULT_PARAMETERS.seconds = 60
-# b = @benchmark NewRivaraProductions.refine!(m) setup=(m = my_setup(20))
-# io = IOBuffer()
-# show(io, "text/plain", b)
-# s = String(take!(io))
-# println(s)
+using BenchmarkTools
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 60
+my_setup(1)
+b = @benchmark NewRivaraProductions.refine!(m) setup=(m = my_setup(20))
+io = IOBuffer()
+show(io, "text/plain", b)
+s = String(take!(io))
+println(s)
