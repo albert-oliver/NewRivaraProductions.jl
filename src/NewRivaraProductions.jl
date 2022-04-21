@@ -13,7 +13,6 @@ end
 mutable struct Edge
     nodes::SVector{2,Base.RefValue{Node}}
     MR::Bool
-    BR::Bool
     NA::Int
     sons::Union{SVector{2,Base.RefValue{Edge}}, Nothing}
 end
@@ -21,7 +20,6 @@ end
 mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
-    BR::Bool
     sons::Union{SVector{2,Triangle}, Nothing}
 end
 
@@ -53,7 +51,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             n2 = conec[(j%3)+1, i]
             edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
             if isempty(edge)
-                edge = Ref(Edge([nodes[n1], nodes[n2]], false, false, 1, nothing))
+                edge = Ref(Edge([nodes[n1], nodes[n2]], false, 1, nothing))
                 push!(get!(edges_per_node, n1, []), edge)
                 push!(get!(edges_per_node, n2, []), edge)
             else
@@ -62,7 +60,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             end
             edges[j] = edge
         end
-        triangles[i] = Triangle(edges, false, false, nothing)
+        triangles[i] = Triangle(edges, false, nothing)
     end
     return Mesh(triangles)
 end
@@ -84,7 +82,8 @@ new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xy
 
 common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
 
-istrianglebroken(t::Triangle) = t.BR
+isbroken(t::Triangle) = !isnothing(t.sons)
+isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
 
 function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
 
@@ -96,13 +95,13 @@ function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
     end
 
     # Then, if any edge is marked to be refined (or already broken)
-    mr1 = (e1.x.MR || e1.x.BR)
-    mr2 = (e2.x.MR || e2.x.BR)
-    if mr1 ≠ mr2
+    br1 = isbroken(e1) || e1.x.MR
+    br2 = isbroken(e2) || e2.x.MR
+    if br1 ≠ br2
         # This function returns the edge that is NOT going to be refined,
         # we want to refine the edge that is marked for refinement or already broken,
         # therefore if it's marked or already broken it should return false
-        return !(mr1)
+        return !(br1)
     end
 
     # Next, the number of adjacent elements
@@ -140,61 +139,56 @@ end
 
 function p1_mark_edges!(triangle::Triangle)
 
-    if (triangle.BR)
+    if isbroken(triangle)
         return false
     end
 
     e1, e2, e3 = sort(get_triangle_edges(triangle), rev=true)
 
-    if (!e1.x.MR) && (triangle.MR || (e2.x.MR || e2.x.BR) || (e3.x.MR || e3.x.BR))
-        e1.x.MR = true
-        return true
+    if (!isbroken(e1)) && (triangle.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
+        return p2_bisect_edge!(e1)
     else
         return false
     end
 
 end
 
+lk = ReentrantLock()
+
 function p2_bisect_edge!(edge::Base.RefValue{Edge})
 
-    if edge.x.MR
-        # It's not marked for refinement anymore
-        edge.x.MR = false
-        # because it's broken
-        edge.x.BR = true
+    # Generate new node
+    new_node = Ref(Node(new_coords(edge), new_coords(edge)))
 
-        # Generate new node
-        new_node = Ref(Node(new_coords(edge), new_coords(edge)))
+    # Generate the first new edge
+    edge1 = Ref(Edge([edge.x.nodes[1], new_node], false, edge.x.NA, nothing))
 
-        # Generate the first new edge
-        edge1 = Ref(Edge([edge.x.nodes[1], new_node], false, false, edge.x.NA, nothing))
+    # Generate the second new edge
+    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], false, edge.x.NA, nothing))
 
-        # Generate the second new edge
-        edge2 = Ref(Edge([new_node, edge.x.nodes[2]], false, false, edge.x.NA, nothing))
-
-        # Add the sons of the initial edge
-        edge.x.sons = [edge1, edge2]
-
-        # Production has been performed
-        return true
-    else
-        # This production has not been performed
-        return false
+    # Add the sons of the initial edge
+    lock(lk) do
+        if !isbroken(edge)
+            edge.x.sons = [edge1, edge2]
+            return true
+        end
     end
+
+    return false
+
 end
 
 function p3_bisect_triangle!(triangle::Triangle)
 
-    if (triangle.BR)
+    if isbroken(triangle)
         return false
     end
 
     edge1, edge2, edge3 = sort(get_triangle_edges(triangle), rev=true)
 
 
-    if edge1.x.BR
+    if isbroken(edge1)
         triangle.MR = false
-        triangle.BR = true
 
         edge4, edge5 = edge1.x.sons
 
@@ -204,10 +198,10 @@ function p3_bisect_triangle!(triangle::Triangle)
 
         v1 = common_node(edge4, edge5)[]
         v2 = common_node(edge2, edge3)[]
-        new_edge = Ref(Edge([v1, v2], false, false, 2, nothing))
+        new_edge = Ref(Edge([v1, v2], false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing)
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing)
+        triangle1 = Triangle([edge3, edge4, new_edge], false, nothing)
+        triangle2 = Triangle([edge5, edge2, new_edge], false, nothing)
 
         triangle.sons = [triangle1, triangle2]
 
@@ -228,7 +222,7 @@ function leaves(t::Triangle)
 end
 
 collect_all_triangles(m::Mesh) = mapreduce(leaves, vcat, m.triangles)
-        
+
 function collect_all_edges(l_triangles)
     return collect(Set(reduce(vcat, [t.edges for t in l_triangles])))
 end
@@ -240,27 +234,15 @@ function refine!(m::Mesh)
     while run
         run = false
         l_triangles = collect_all_triangles(m)
-        l_edges = collect_all_edges(l_triangles)
 
         Threads.@threads for t in l_triangles
-        # for t in l_triangles
             run |= p1_mark_edges!(t)
-        end
-
-        Threads.@threads for e in l_edges
-        # for e in l_edges
-            run |= p2_bisect_edge!(e)
-        end
-
-        Threads.@threads for t in l_triangles
-        # for t in l_triangles
             run |= p3_bisect_triangle!(t)
         end
 
     end
 
     return nothing
-
 end
 
 end
