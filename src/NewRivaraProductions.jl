@@ -134,12 +134,12 @@ function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
     return false
 end
 
-function get_triangle_edges(t::Triangle)
+function get_edges(t::Triangle)
     return t.edges
 end
 
-function get_triangles_sorted_edges(triangle)
-    edges = Vector{Base.RefValue{Edge}}(get_triangle_edges(triangle))
+function get_sorted_edges(triangle)
+    edges = Vector{Base.RefValue{Edge}}(get_edges(triangle))
     e_idx = findmax(edges)[2]
 
     return circshift(edges, -(e_idx-1))
@@ -159,7 +159,7 @@ function p1_mark_edges!(triangle::Triangle)
         return false
     end
 
-    e1, e2, e3 = get_triangles_sorted_edges(triangle)
+    e1, e2, e3 = get_sorted_edges(triangle)
 
     if (!isbroken(e1)) && (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
         return p2_bisect_edge!(e1)
@@ -198,7 +198,7 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
         return false
     end
 
-    edge1, edge2, edge3 = get_triangles_sorted_edges(triangle)
+    edge1, edge2, edge3 = get_sorted_edges(triangle)
 
     if isbroken(edge1)
         triangle.MR = false
@@ -230,7 +230,7 @@ end
 p4_remove_broken_triangles!(m::Mesh) = filter!(!isbroken, m.triangles)
 
 function collect_all_edges(m)
-    return collect(Set(reduce(vcat, [t.edges for t in m.triangles])))
+    return collect(Set(reduce(vcat, [get_edges(t) for t in m.triangles])))
 end
 
 function refine!(m::Mesh)
@@ -256,7 +256,7 @@ end
 collect_all_nodes(m::Mesh) = collect_all_nodes(collect_all_edges(m))
 collect_all_nodes(edge_vector::AbstractVector{Base.RefValue{Edge}}) = collect(Set(reduce(vcat, [e.x.nodes for e in edge_vector])))
 node_idx_Dict(node_vector::Vector{Base.RefValue{Node}}) = Dict([(node, i) for (i, node) in enumerate(node_vector)])
-get_triangle_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in 
+get_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in 
     [
         common_node(t.edges[3], t.edges[1])[],
         common_node(t.edges[1], t.edges[2])[],
@@ -268,7 +268,7 @@ function write_vtk(m::Mesh, filename)
     nodes_vec = collect_all_nodes(m)
     nodes_dict = node_idx_Dict(nodes_vec)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_triangle_conec(t, nodes_dict)) for t in m.triangles]
+    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t, nodes_dict)) for t in m.triangles]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
