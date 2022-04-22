@@ -138,6 +138,13 @@ function get_triangle_edges(t::Triangle)
     return t.edges
 end
 
+function get_triangles_sorted_edges(triangle)
+    edges = Vector{Base.RefValue{Edge}}(get_triangle_edges(triangle))
+    e_idx = findmax(edges)[2]
+
+    return circshift(edges, -(e_idx-1))
+end
+
 lk = ReentrantLock()
 
 function add_new_triangle!(m::Mesh, t::Triangle)
@@ -152,7 +159,7 @@ function p1_mark_edges!(triangle::Triangle)
         return false
     end
 
-    e1, e2, e3 = sort(get_triangle_edges(triangle), rev=true)
+    e1, e2, e3 = get_triangles_sorted_edges(triangle)
 
     if (!isbroken(e1)) && (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
         return p2_bisect_edge!(e1)
@@ -191,8 +198,7 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
         return false
     end
 
-    edge1, edge2, edge3 = sort(get_triangle_edges(triangle), rev=true)
-
+    edge1, edge2, edge3 = get_triangles_sorted_edges(triangle)
 
     if isbroken(edge1)
         triangle.MR = false
@@ -215,7 +221,6 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
         add_new_triangle!(m, triangle2)
 
         return true
-
     else
         return false
     end
@@ -251,7 +256,13 @@ end
 collect_all_nodes(m::Mesh) = collect_all_nodes(collect_all_edges(m))
 collect_all_nodes(edge_vector::AbstractVector{Base.RefValue{Edge}}) = collect(Set(reduce(vcat, [e.x.nodes for e in edge_vector])))
 node_idx_Dict(node_vector::Vector{Base.RefValue{Node}}) = Dict([(node, i) for (i, node) in enumerate(node_vector)])
-get_triangle_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in collect_all_nodes(t.edges)]
+get_triangle_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in 
+    [
+        common_node(t.edges[3], t.edges[1])[],
+        common_node(t.edges[1], t.edges[2])[],
+        common_node(t.edges[2], t.edges[3])[]
+    ]
+]
 
 function write_vtk(m::Mesh, filename)
     nodes_vec = collect_all_nodes(m)
