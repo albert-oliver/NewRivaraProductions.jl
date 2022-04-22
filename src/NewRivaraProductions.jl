@@ -2,6 +2,7 @@ module NewRivaraProductions
 
 using LinearAlgebra
 using StaticArrays
+using WriteVTK
 
 # Write your package code here.
 
@@ -245,6 +246,21 @@ function refine!(m::Mesh)
     p4_remove_broken_triangles!(m)
     return nothing
 
+end
+
+collect_all_nodes(m::Mesh) = collect_all_nodes(collect_all_edges(m))
+collect_all_nodes(edge_vector::AbstractVector{Base.RefValue{Edge}}) = collect(Set(reduce(vcat, [e.x.nodes for e in edge_vector])))
+node_idx_Dict(node_vector::Vector{Base.RefValue{Node}}) = Dict([(node, i) for (i, node) in enumerate(node_vector)])
+get_triangle_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in collect_all_nodes(t.edges)]
+
+function write_vtk(m::Mesh, filename)
+    nodes_vec = collect_all_nodes(m)
+    nodes_dict = node_idx_Dict(nodes_vec)
+    coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
+    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_triangle_conec(t, nodes_dict)) for t in m.triangles]
+    vtk_grid(filename, coords, conec) do vtk
+        vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
+    end
 end
 
 end
