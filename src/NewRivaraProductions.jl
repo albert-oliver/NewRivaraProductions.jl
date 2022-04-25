@@ -13,6 +13,7 @@ end
 
 mutable struct Edge
     nodes::SVector{2,Base.RefValue{Node}}
+    nodes_id::SVector{2,Int}
     MR::Bool
     NA::Int
     sons::Union{SVector{2,Base.RefValue{Edge}}, Nothing}
@@ -26,6 +27,7 @@ end
 
 mutable struct Mesh
     triangles::Vector{Triangle}
+    nodes::Vector{Base.RefValue{Node}}
 end
 
 function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
@@ -52,7 +54,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             n2 = conec[(j%3)+1, i]
             edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
             if isempty(edge)
-                edge = Ref(Edge([nodes[n1], nodes[n2]], false, 1, nothing))
+                edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, 1, nothing))
                 push!(get!(edges_per_node, n1, []), edge)
                 push!(get!(edges_per_node, n2, []), edge)
             else
@@ -63,7 +65,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
         end
         triangles[i] = Triangle(edges, false, false)
     end
-    return Mesh(triangles)
+    return Mesh(triangles, nodes)
 end
 
 function simpleMesh()
@@ -82,6 +84,7 @@ length(e::Base.RefValue{Edge}) = norm(e.x.nodes[1].x.xyz - e.x.nodes[2].x.xyz)
 new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xyz)/2
 
 common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
+common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes_id, e2.x.nodes_id)
 
 isbroken(t::Triangle) = t.BR
 isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
@@ -153,7 +156,7 @@ function add_new_triangle!(m::Mesh, t::Triangle)
     end
 end
 
-function p1_mark_edges!(triangle::Triangle)
+function p1_mark_edges!(m::Mesh, triangle::Triangle)
 
     if isbroken(triangle)
         return false
@@ -161,34 +164,37 @@ function p1_mark_edges!(triangle::Triangle)
 
     e1, e2, e3 = get_sorted_edges(triangle)
 
-    if (!isbroken(e1)) && (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
-        return p2_bisect_edge!(e1)
-    else
-        return false
-    end
-
-end
-
-function p2_bisect_edge!(edge::Base.RefValue{Edge})
-
-    # Generate new node
-    new_node = Ref(Node(new_coords(edge), new_coords(edge)))
-
-    # Generate the first new edge
-    edge1 = Ref(Edge([edge.x.nodes[1], new_node], false, edge.x.NA, nothing))
-
-    # Generate the second new edge
-    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], false, edge.x.NA, nothing))
-
-    # Add the sons of the initial edge
-    lock(lk) do
-        if !isbroken(edge)
-            edge.x.sons = [edge1, edge2]
-            return true
+    if (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
+        lock(lk) do
+            if (!isbroken(e1)) 
+                p2_bisect_edge!(m, e1)
+                return true
+            end
         end
     end
 
     return false
+
+end
+
+function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
+
+    # Generate new node
+    new_node = Ref(Node(new_coords(edge), new_coords(edge)))
+
+    push!(m.nodes, new_node)
+    new_node_id = Base.length(m.nodes)
+
+    # Generate the first new edge
+    edge1 = Ref(Edge([edge.x.nodes[1], new_node], [edge.x.nodes_id[1], new_node_id], false, edge.x.NA, nothing))
+
+    # Generate the second new edge
+    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], [new_node_id, edge.x.nodes_id[2]], false, edge.x.NA, nothing))
+
+    # Add the sons of the initial edge
+    edge.x.sons = [edge1, edge2]
+
+    return nothing
 
 end
 
@@ -212,7 +218,9 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
 
         v1 = common_node(edge4, edge5)[]
         v2 = common_node(edge2, edge3)[]
-        new_edge = Ref(Edge([v1, v2], false, 2, nothing))
+        v1_id = common_node_id(edge4, edge5)[]
+        v2_id = common_node_id(edge2, edge3)[]
+        new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
         triangle1 = Triangle([edge3, edge4, new_edge], false, false)
         add_new_triangle!(m, triangle1)
@@ -242,7 +250,7 @@ function refine!(m::Mesh)
         l_triangles = copy(m.triangles)
 
         Threads.@threads for t in l_triangles
-            run |= p1_mark_edges!(t)
+            run |= p1_mark_edges!(m, t)
             run |= p3_bisect_triangle!(m, t)
         end
 
@@ -253,22 +261,19 @@ function refine!(m::Mesh)
 
 end
 
-collect_all_nodes(m::Mesh) = collect_all_nodes(collect_all_edges(m))
-collect_all_nodes(edge_vector::AbstractVector{Base.RefValue{Edge}}) = collect(Set(reduce(vcat, [e.x.nodes for e in edge_vector])))
-node_idx_Dict(node_vector::Vector{Base.RefValue{Node}}) = Dict([(node, i) for (i, node) in enumerate(node_vector)])
-get_conec(t::Triangle, nodes_dict) = [nodes_dict[n] for n in 
+collect_all_nodes(m::Mesh) = m.nodes
+get_conec(t::Triangle) = [n for n in 
     [
-        common_node(t.edges[3], t.edges[1])[],
-        common_node(t.edges[1], t.edges[2])[],
-        common_node(t.edges[2], t.edges[3])[]
+        common_node_id(t.edges[3], t.edges[1])[],
+        common_node_id(t.edges[1], t.edges[2])[],
+        common_node_id(t.edges[2], t.edges[3])[]
     ]
 ]
 
 function write_vtk(m::Mesh, filename)
     nodes_vec = collect_all_nodes(m)
-    nodes_dict = node_idx_Dict(nodes_vec)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t, nodes_dict)) for t in m.triangles]
+    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t)) for t in m.triangles]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
