@@ -1,8 +1,8 @@
 using NewRivaraProductions
 
 function mark_all_triangles_for_refinement(m)
-    for t in m.triangles
-        t.MR = true
+    for t in NewRivaraProductions.collect_all_triangles(m)
+        t.x.MR = true
     end
 end
 

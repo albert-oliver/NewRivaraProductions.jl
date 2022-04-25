@@ -23,10 +23,12 @@ mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     BR::Bool
+    prev::Union{Base.RefValue{Triangle}, Nothing}
+    next::Union{Base.RefValue{Triangle}, Nothing}
 end
 
 mutable struct Mesh
-    triangles::Vector{Triangle}
+    root_triangle::Base.RefValue{Triangle}
     nodes::Vector{Base.RefValue{Node}}
 end
 
@@ -63,9 +65,18 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             end
             edges[j] = edge
         end
-        triangles[i] = Triangle(edges, false, false)
+        triangles[i] = Triangle(edges, false, false, nothing, nothing)
     end
-    return Mesh(triangles, nodes)
+
+    for i in 1:Base.length(triangles)-1
+        triangles[i].next = Ref(triangles[i+1])
+    end
+
+    for i in 2:Base.length(triangles)
+        triangles[i].prev = Ref(triangles[i-1])
+    end
+
+    return Mesh(Ref(triangles[1]), nodes)
 end
 
 function simpleMesh()
@@ -150,21 +161,38 @@ end
 
 lk = ReentrantLock()
 
-function add_new_triangle!(m::Mesh, t::Triangle)
+function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
     lock(lk) do
-        push!(m.triangles, t)
+        rt1 = Ref(t1)
+        rt2 = Ref(t2)
+        t1.prev = tp.prev
+        if !isnothing(t1.prev)
+            t1.prev.x.next = rt1
+        else
+            m.root_triangle = rt1
+        end
+        t1.next = rt2
+        t2.prev = rt1
+        t2.next = tp.next
+        if !isnothing(t2.next)
+            t2.next.x.prev = rt2
+        end
+
+        # Clean (probably not needed)
+        tp.prev = nothing
+        tp.next = nothing
     end
 end
 
-function p1_mark_edges!(m::Mesh, triangle::Triangle)
+function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
 
-    if isbroken(triangle)
+    if isbroken(triangle.x)
         return false
     end
 
-    e1, e2, e3 = get_sorted_edges(triangle)
+    e1, e2, e3 = get_sorted_edges(triangle.x)
 
-    if (triangle.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
+    if (triangle.x.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
         lock(lk) do
             if (!isbroken(e1)) 
                 p2_bisect_edge!(m, e1)
@@ -198,17 +226,17 @@ function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
 
 end
 
-function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
+function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
 
-    if isbroken(triangle)
+    if isbroken(triangle.x)
         return false
     end
 
-    edge1, edge2, edge3 = get_sorted_edges(triangle)
+    edge1, edge2, edge3 = get_sorted_edges(triangle.x)
 
     if isbroken(edge1)
-        triangle.MR = false
-        triangle.BR = true
+        triangle.x.MR = false
+        triangle.x.BR = true
 
         edge4, edge5 = edge1.x.sons
 
@@ -222,11 +250,10 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
         v2_id = common_node_id(edge2, edge3)[]
         new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false)
-        add_new_triangle!(m, triangle1)
+        triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing, nothing)
+        triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing, nothing)
 
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false)
-        add_new_triangle!(m, triangle2)
+        add_new_triangles!(m, triangle.x, triangle1, triangle2)
 
         return true
     else
@@ -235,10 +262,14 @@ function p3_bisect_triangle!(m::Mesh, triangle::Triangle)
 
 end
 
-p4_remove_broken_triangles!(m::Mesh) = filter!(!isbroken, m.triangles)
-
-function collect_all_edges(m)
-    return collect(Set(reduce(vcat, [get_edges(t) for t in m.triangles])))
+function collect_all_triangles(m::Mesh)
+    node = m.root_triangle
+    triangles = Vector{Base.RefValue{Triangle}}()
+    while !isnothing(node)
+        push!(triangles, node)
+        node = node.x.next
+    end
+    return triangles
 end
 
 function refine!(m::Mesh)
@@ -247,7 +278,7 @@ function refine!(m::Mesh)
 
     while run
         run = false
-        l_triangles = copy(m.triangles)
+        l_triangles = collect_all_triangles(m)
 
         Threads.@threads for t in l_triangles
             run |= p1_mark_edges!(m, t)
@@ -256,7 +287,6 @@ function refine!(m::Mesh)
 
     end
 
-    p4_remove_broken_triangles!(m)
     return nothing
 
 end
@@ -273,7 +303,7 @@ get_conec(t::Triangle) = [n for n in
 function write_vtk(m::Mesh, filename)
     nodes_vec = collect_all_nodes(m)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t)) for t in m.triangles]
+    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t.x)) for t in collect_all_triangles(m)]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
