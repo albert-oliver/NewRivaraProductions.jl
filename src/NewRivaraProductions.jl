@@ -23,6 +23,7 @@ mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     BR::Bool
+    order::Bool
     prev::Union{Base.RefValue{Triangle}, Nothing}
     next::Union{Base.RefValue{Triangle}, Nothing}
 end
@@ -65,7 +66,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             end
             edges[j] = edge
         end
-        triangles[i] = Triangle(edges, false, false, nothing, nothing)
+        triangles[i] = Triangle(edges, false, false, true, nothing, nothing)
     end
 
     for i in 1:Base.length(triangles)-1
@@ -250,8 +251,12 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
         v2_id = common_node_id(edge2, edge3)[]
         new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing, nothing)
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing, nothing)
+        triangle1 = Triangle([edge3, edge4, new_edge], false, false, !triangle.x.order, nothing, nothing)
+        triangle2 = Triangle([edge5, edge2, new_edge], false, false, !triangle.x.order, nothing, nothing)
+
+        if (triangle.x.order)
+            triangle1, triangle2 = triangle2, triangle1
+        end
 
         add_new_triangles!(m, triangle.x, triangle1, triangle2)
 

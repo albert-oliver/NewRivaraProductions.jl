@@ -8,7 +8,7 @@ NewRivaraProductions.refine!(m)
 NewRivaraProductions.write_vtk(m, "kk1.vtu")
 
 triangles = NewRivaraProductions.collect_all_triangles(m)
-triangles[1].x.edges[2].x.MR = true
+triangles[3].x.edges[2].x.MR = true
 NewRivaraProductions.refine!(m)
 NewRivaraProductions.write_vtk(m, "kk2.vtu")
 
@@ -18,6 +18,6 @@ NewRivaraProductions.refine!(m)
 NewRivaraProductions.write_vtk(m, "kk3.vtu")
 
 triangles = NewRivaraProductions.collect_all_triangles(m)
-triangles[13].x.edges[3].x.MR = true
+triangles[9].x.edges[3].x.MR = true
 NewRivaraProductions.refine!(m)
 NewRivaraProductions.write_vtk(m, "kk4.vtu")
