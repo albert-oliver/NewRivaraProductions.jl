@@ -23,7 +23,6 @@ mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     BR::Bool
-    order::Bool
     prev::Union{Base.RefValue{Triangle}, Nothing}
     next::Union{Base.RefValue{Triangle}, Nothing}
 end
@@ -48,6 +47,7 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
 
     triangles = Vector{Triangle}(undef, nelem)
     edges_per_node = Dict{Int, Vector{Base.RefValue{Edge}}}()
+    refTriangles = Vector{Base.RefValue{Triangle}}(undef, nelem)
 
     for i in 1:nelem
         edges = Vector{Base.RefValue{Edge}}(undef, 3)
@@ -66,15 +66,16 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
             end
             edges[j] = edge
         end
-        triangles[i] = Triangle(edges, false, false, true, nothing, nothing)
+        triangles[i] = Triangle(edges, false, false, nothing, nothing)
+        refTriangles[i] = Ref(triangles[i])
     end
 
     for i in 1:Base.length(triangles)-1
-        triangles[i].next = Ref(triangles[i+1])
+        triangles[i].next = refTriangles[i+1]
     end
 
     for i in 2:Base.length(triangles)
-        triangles[i].prev = Ref(triangles[i-1])
+        triangles[i].prev = refTriangles[i-1]
     end
 
     return Mesh(Ref(triangles[1]), nodes)
@@ -162,11 +163,11 @@ end
 
 lk = ReentrantLock()
 
-function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
+function add_new_triangles!(m::Mesh, tp::Base.RefValue{Triangle}, t1::Triangle, t2::Triangle)
     lock(lk) do
         rt1 = Ref(t1)
         rt2 = Ref(t2)
-        t1.prev = tp.prev
+        t1.prev = tp.x.prev
         if !isnothing(t1.prev)
             t1.prev.x.next = rt1
         else
@@ -174,14 +175,15 @@ function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
         end
         t1.next = rt2
         t2.prev = rt1
-        t2.next = tp.next
+        t2.next = tp.x.next
         if !isnothing(t2.next)
             t2.next.x.prev = rt2
         end
 
         # Clean (probably not needed)
-        tp.prev = nothing
-        tp.next = nothing
+        tp.x.prev = nothing
+        tp.x.next = nothing
+
     end
 end
 
@@ -197,9 +199,9 @@ function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
         lock(lk) do
             if (!isbroken(e1)) 
                 p2_bisect_edge!(m, e1)
-                return true
             end
         end
+        return true
     end
 
     return false
@@ -227,6 +229,23 @@ function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
 
 end
 
+function isequal(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
+    return e1 == e2 ||
+    (isbroken(e1) && any(isequal(e2), e1.x.sons)) ||
+    (isbroken(e2) && any(isequal(e1), e2.x.sons))
+end
+
+isequal(e::Base.RefValue{Edge}) = Base.Fix1(isequal, e)
+
+function is_triangle_adjacent_to_edge(t::Base.RefValue{Triangle}, e::Base.RefValue{Edge})
+    return any(isequal(e), t.x.edges)
+end
+
+function change_order(next_edge, prev_edge, t)
+    return (!isnothing(t.x.prev) && is_triangle_adjacent_to_edge(t.x.prev, next_edge)) ||
+           (!isnothing(t.x.next) && is_triangle_adjacent_to_edge(t.x.next, prev_edge))
+end
+
 function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
@@ -251,14 +270,15 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
         v2_id = common_node_id(edge2, edge3)[]
         new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false, !triangle.x.order, nothing, nothing)
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false, !triangle.x.order, nothing, nothing)
+        triangle1 = Triangle([edge5, edge2, new_edge], false, false, nothing, nothing)
+        triangle2 = Triangle([edge3, edge4, new_edge], false, false, nothing, nothing)
 
-        if (triangle.x.order)
+        if change_order(edge3, edge2, triangle)
             triangle1, triangle2 = triangle2, triangle1
+            edge3, edge4, edge5, edge2 = edge5, edge2, edge3, edge4
         end
 
-        add_new_triangles!(m, triangle.x, triangle1, triangle2)
+        add_new_triangles!(m, triangle, triangle1, triangle2)
 
         return true
     else
