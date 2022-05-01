@@ -162,9 +162,9 @@ end
 lk = ReentrantLock()
 
 function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
+    rt1 = Ref(t1)
+    rt2 = Ref(t2)
     lock(lk) do
-        rt1 = Ref(t1)
-        rt2 = Ref(t2)
         t1.prev = tp.prev
         if !isnothing(t1.prev)
             t1.prev.x.next = rt1
@@ -182,6 +182,7 @@ function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
         tp.prev = nothing
         tp.next = nothing
     end
+    return rt1, rt2
 end
 
 function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
@@ -192,13 +193,31 @@ function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
 
     e1, e2, e3 = get_sorted_edges(triangle.x)
 
-    if (triangle.x.MR || e1.x.MR || (isbroken(e2) || e2.x.MR) || (isbroken(e3) || e3.x.MR))
-        lock(lk) do
-            if (!isbroken(e1)) 
-                p2_bisect_edge!(m, e1)
-                return true
+    if (e2.x.MR && !isbroken(e2))
+        lock(lk) do # We don't want the other adjacent triangle to break e2 at the same time
+            if (!isbroken(e2)) 
+                p2_bisect_edge!(m, e2)
             end
         end
+    end
+
+    if (e3.x.MR && !isbroken(e3))
+        lock(lk) do # We don't want the other adjacent triangle to break e3 at the same time
+            if (!isbroken(e3)) 
+                p2_bisect_edge!(m, e3)
+            end
+        end
+    end
+
+
+    if (!isbroken(e1)) && (triangle.x.MR || e1.x.MR || isbroken(e2) || isbroken(e3))
+        lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
+            if (!isbroken(e1)) 
+                p2_bisect_edge!(m, e1)
+            end
+        end
+        triangle.x.MR = false
+        return true
     end
 
     return false
@@ -206,6 +225,8 @@ function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
 end
 
 function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
+
+    edge.x.MR = false
 
     # Generate new node
     new_node = Ref(Node(new_coords(edge), new_coords(edge)))
@@ -253,12 +274,14 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
         triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing, nothing)
         triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing, nothing)
 
-        add_new_triangles!(m, triangle.x, triangle1, triangle2)
+        rt1, rt2 = add_new_triangles!(m, triangle.x, triangle1, triangle2)
 
-        return true
-    else
-        return false
+        p3_bisect_triangle!(m, rt1)
+        p3_bisect_triangle!(m, rt2)
+
     end
+
+    return nothing
 
 end
 
@@ -278,13 +301,23 @@ function refine!(m::Mesh)
 
     while run
         run = false
+
         l_triangles = collect_all_triangles(m)
 
-        Threads.@threads for t in l_triangles
-            run |= p1_mark_edges!(m, t)
-            run |= p3_bisect_triangle!(m, t)
+        edges_broken = true
+        while edges_broken
+            edges_broken = false
+            Threads.@threads for t in l_triangles
+                edges_broken |= p1_mark_edges!(m, t)
+            end
+            run |= edges_broken
         end
 
+        if run
+            Threads.@threads for t in l_triangles
+                p3_bisect_triangle!(m, t)
+            end
+        end
     end
 
     return nothing
