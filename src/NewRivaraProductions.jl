@@ -204,6 +204,9 @@ common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.
 isbroken(t::Triangle) = !isnothing(t.sons)
 isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
 
+get_root(m::TetrahedralMesh) = m.root_tetrahedron
+get_root(m::TriangularMesh) = m.root_triangle
+
 function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
 
     # First we just compare lengths
@@ -387,24 +390,14 @@ function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
 end
 
-function collect_all_elements(m::TriangularMesh)
-    node = m.root_triangle
-    triangles = Vector{Base.RefValue{Triangle}}()
+function collect_all_elements(m::AbstractMesh)
+    node = get_root(m)
+    elements = Vector{typeof(node)}()
     while !isnothing(node)
-        push!(triangles, node)
+        push!(elements, node)
         node = node.x.next
     end
-    return triangles
-end
-
-function collect_all_elements(m::TetrahedralMesh)
-    node = m.root_tetrahedron
-    tetrahedra = Vector{Base.RefValue{Tetrahedron}}()
-    while !isnothing(node)
-        push!(tetrahedra, node)
-        node = node.x.next
-    end
-    return tetrahedra
+    return elements
 end
 
 function refine!(m::AbstractMesh)
