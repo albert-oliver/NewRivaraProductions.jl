@@ -66,6 +66,36 @@ function get_triangle_edges!(conec, edges_per_node, nodes)
 
     return edges
 end
+
+function get_tetrahedron_triangles!(conec, triangles_per_node, edges_per_node, nodes)
+    triangles = Vector{Base.RefValue{Triangle}}()
+    sizehint!(triangles, 4)
+
+    tri_conecs = transpose([1 3 2;
+                            1 4 2;
+                            1 3 4;
+                            2 4 3])
+
+    for tri_conec in eachcol(conec[tri_conecs])
+        n1, n2, n3 = tri_conec
+        triangle = haskey(triangles_per_node, n1) && haskey(triangles_per_node, n2) && haskey(triangles_per_node, n3) ?
+            intersect(triangles_per_node[n1], triangles_per_node[n2], triangles_per_node[n3]) :
+            []
+        if isempty(triangle)
+            edges = get_triangle_edges!(tri_conec[:], edges_per_node, nodes)
+            triangle = Ref(Triangle(edges, false, nothing, nothing, nothing))
+            push!(get!(triangles_per_node, n1, []), triangle)
+            push!(get!(triangles_per_node, n2, []), triangle)
+            push!(get!(triangles_per_node, n3, []), triangle)
+        else
+            triangle = triangle[1]
+        end
+        push!(triangles, triangle)
+    end
+
+        return triangles
+end
+
 function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
     dim, nnodes = size(coords)
     nconec, nelem = size(conec)
@@ -97,6 +127,38 @@ function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{In
 
     return TriangularMesh(Ref(triangles[1]), nodes)
 end
+
+function TetrahedralMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
+    dim, nnodes = size(coords)
+    nconec, nelem = size(conec)
+
+    dim ≠ 3 && throw(ArgumentError("coords should be a matrix of size 3×nNodes"))
+    nconec ≠ 4 && throw(ArgumentError("conec should be a matrix of size 4×nTetrahedra"))
+
+    nodes = Vector{Base.RefValue{Node}}(undef, nnodes)
+
+    for i in 1:nnodes
+        nodes[i] = Ref(Node(coords[:,i], coords[:,i]))
+    end
+
+    tetrahedra = Vector{Tetrahedron}(undef, nelem)
+    edges_per_node = Dict{Int, Vector{Base.RefValue{Edge}}}()
+    triangles_per_node = Dict{Int, Vector{Base.RefValue{Triangle}}}()
+
+    for i in 1:nelem
+        triangles = get_tetrahedron_triangles!(conec[:,i], triangles_per_node, edges_per_node, nodes)
+        tetrahedra[i] = Tetrahedron(triangles, false, nothing, nothing)
+    end
+
+    for i in 1:Base.length(tetrahedra)-1
+        tetrahedra[i].next = Ref(tetrahedra[i+1])
+    end
+
+    for i in 2:Base.length(tetrahedra)
+        tetrahedra[i].prev = Ref(tetrahedra[i-1])
+    end
+
+    return TetrahedralMesh(Ref(tetrahedra[1]), nodes)
 end
 
 function simpleTriangularMesh()
@@ -109,6 +171,28 @@ function simpleTriangularMesh()
                        3 4 1])
 
     return TriangularMesh(coords, conec)
+end
+
+function simpleTetrahedralMesh()
+
+
+    coords = transpose([0.0 0.0 0.0;
+                        1.0 0.0 0.0;
+                        1.0 1.0 0.0;
+                        0.0 1.0 0.0;
+                        0.0 0.0 1.0;
+                        1.0 0.0 1.0;
+                        1.0 1.0 1.0;
+                        0.0 1.0 1.0])
+
+    conec = transpose([1 7 2 3;
+                       1 7 6 2;
+                       1 7 5 6;
+                       1 7 8 5;
+                       1 7 4 8;
+                       1 7 3 4])
+
+    return TetrahedralMesh(coords, conec)
 end
 
 length(e::Base.RefValue{Edge}) = norm(e.x.nodes[1].x.xyz - e.x.nodes[2].x.xyz)
@@ -316,6 +400,16 @@ function collect_all_elements(m::TriangularMesh)
     return triangles
 end
 
+function collect_all_elements(m::TetrahedralMesh)
+    node = m.root_tetrahedron
+    tetrahedra = Vector{Base.RefValue{Tetrahedron}}()
+    while !isnothing(node)
+        push!(tetrahedra, node)
+        node = node.x.next
+    end
+    return tetrahedra
+end
+
 function refine!(m::AbstractMesh)
 
     run = true
@@ -345,7 +439,7 @@ function refine!(m::AbstractMesh)
 
 end
 
-collect_all_nodes(m::TriangularMesh) = m.nodes
+collect_all_nodes(m::AbstractMesh) = m.nodes
 get_conec(t::Triangle) = [n for n in 
     [
         common_node_id(t.edges[3], t.edges[1])[],
@@ -354,10 +448,22 @@ get_conec(t::Triangle) = [n for n in
     ]
 ]
 
+# Internally the conectivities are not in the usuar order, so we need to restore them, hence the [1, 3, 2, 4]
+get_conec(t::Tetrahedron) = mapreduce(t -> NewRivaraProductions.get_conec(t.x), union, t.faces)[[1, 3, 2, 4]]
+
 function write_vtk(m::TriangularMesh, filename)
     nodes_vec = collect_all_nodes(m)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
     conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t.x)) for t in collect_all_elements(m)]
+    vtk_grid(filename, coords, conec) do vtk
+        vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
+    end
+end
+
+function write_vtk(m::TetrahedralMesh, filename)
+    nodes_vec = collect_all_nodes(m)
+    coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
+    conec = [MeshCell(VTKCellTypes.VTK_TETRA, get_conec(t.x)) for t in collect_all_elements(m)]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
