@@ -46,6 +46,26 @@ mutable struct TetrahedralMesh <: AbstractMesh
     nodes::Vector{Base.RefValue{Node}}
 end
 
+function get_triangle_edges!(conec, edges_per_node, nodes)
+    edges = Vector{Base.RefValue{Edge}}(undef, 3)
+
+    for j in 1:3
+        n1 = conec[j]
+        n2 = conec[(j%3)+1]
+        edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
+        if isempty(edge)
+            edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, 1, nothing))
+            push!(get!(edges_per_node, n1, []), edge)
+            push!(get!(edges_per_node, n2, []), edge)
+        else
+            edge = edge[1]
+            edge.x.NA = edge.x.NA + 1
+        end
+        edges[j] = edge
+    end
+
+    return edges
+end
 function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
     dim, nnodes = size(coords)
     nconec, nelem = size(conec)
@@ -63,23 +83,8 @@ function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{In
     edges_per_node = Dict{Int, Vector{Base.RefValue{Edge}}}()
 
     for i in 1:nelem
-        edges = Vector{Base.RefValue{Edge}}(undef, 3)
-
-        for j in 1:3
-            n1 = conec[j, i]
-            n2 = conec[(j%3)+1, i]
-            edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
-            if isempty(edge)
-                edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, 1, nothing))
-                push!(get!(edges_per_node, n1, []), edge)
-                push!(get!(edges_per_node, n2, []), edge)
-            else
-                edge = edge[1]
-                edge.x.NA = edge.x.NA + 1
-            end
-            edges[j] = edge
-        end
-        triangles[i] = Triangle(edges, false, false, nothing, nothing)
+        edges = get_triangle_edges!(conec[:,i], edges_per_node, nodes)
+        triangles[i] = Triangle(edges, false, nothing, nothing, nothing)
     end
 
     for i in 1:Base.length(triangles)-1
