@@ -292,7 +292,7 @@ function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Tri
     return rt1, rt2
 end
 
-function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
+function p1_bisect_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
         return false
@@ -305,7 +305,7 @@ function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
         if (e.x.MR && !isbroken(e))
             lock(lk) do # We don't want the other adjacent triangle to break e at the same time
                 if (!isbroken(e)) 
-                    p2_bisect_edge!(m, e)
+                    bisect_edge!(m, e)
                 end
             end
             any_bisection = true
@@ -317,7 +317,7 @@ function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
     if !isbroken(e1) && (triangle.x.MR || any(isbroken, edges[2:end]))
         lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
             if !isbroken(e1) 
-                p2_bisect_edge!(m, e1)
+                bisect_edge!(m, e1)
             end
         end
         triangle.x.MR = false
@@ -328,7 +328,7 @@ function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
 end
 
-function p2_bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
+function bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
 
     edge.x.MR = false
 
@@ -418,7 +418,7 @@ function refine!(m::AbstractMesh)
         while edges_broken
             edges_broken = false
             Threads.@threads for t in l_triangles
-                edges_broken |= p1_mark_edges!(m, t)
+                edges_broken |= p1_bisect_edges!(m, t)
             end
             run |= edges_broken
         end
