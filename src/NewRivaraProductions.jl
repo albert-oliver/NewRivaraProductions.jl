@@ -351,6 +351,31 @@ function p2_bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
 
 end
 
+function bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle}, edge1, edge2, edge3)
+    triangle.x.MR = false
+
+    edge4, edge5 = edge1.x.sons
+
+    if (isempty(common_node(edge3, edge4)))
+        edge4, edge5 = edge5, edge4
+    end
+
+    v1 = common_node(edge4, edge5)[]
+    v2 = common_node(edge2, edge3)[]
+    v1_id = common_node_id(edge4, edge5)[]
+    v2_id = common_node_id(edge2, edge3)[]
+    new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
+
+    triangle1 = Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing)
+    triangle2 = Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing)
+
+    rt1, rt2 = add_new_triangles!(m, triangle.x, triangle1, triangle2)
+
+    triangle.x.sons = [rt1, rt2]
+
+    return rt1, rt2
+end
+
 function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
@@ -360,30 +385,10 @@ function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
     edge1, edge2, edge3 = get_sorted_edges(triangle.x)
 
     if isbroken(edge1)
-        triangle.x.MR = false
-
-        edge4, edge5 = edge1.x.sons
-
-        if (isempty(common_node(edge3, edge4)))
-            edge4, edge5 = edge5, edge4
-        end
-
-        v1 = common_node(edge4, edge5)[]
-        v2 = common_node(edge2, edge3)[]
-        v1_id = common_node_id(edge4, edge5)[]
-        v2_id = common_node_id(edge2, edge3)[]
-        new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
-
-        triangle1 = Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing)
-        triangle2 = Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing)
-
-        rt1, rt2 = add_new_triangles!(m, triangle.x, triangle1, triangle2)
+        rt1, rt2 = bisect_triangle!(m, triangle, edge1, edge2, edge3)
 
         p3_bisect_triangle!(m, rt1)
         p3_bisect_triangle!(m, rt2)
-
-        triangle.x.sons = [rt1, rt2]
-
     end
 
     return nothing
