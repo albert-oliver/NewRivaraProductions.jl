@@ -16,10 +16,10 @@ conec = transpose([
     4 5 7;
     5 6 7])
 
-m = NewRivaraProductions.Mesh(coords, conec)
+m = NewRivaraProductions.TriangularMesh(coords, conec)
 NewRivaraProductions.write_vtk(m, "rivara_example_0.vtu")
 
-triangles = NewRivaraProductions.collect_all_triangles(m)
+triangles = NewRivaraProductions.collect_all_elements(m)
 triangles[1].x.MR = true
 NewRivaraProductions.refine!(m)
 NewRivaraProductions.write_vtk(m, "rivara_example_1.vtu")

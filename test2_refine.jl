@@ -1,13 +1,15 @@
 using NewRivaraProductions
 
+println("Number of Threads: $(Threads.nthreads())")
+
 function mark_all_triangles_for_refinement(m)
-    for t in NewRivaraProductions.collect_all_triangles(m)
+    for t in NewRivaraProductions.collect_all_elements(m)
         t.x.MR = true
     end
 end
 
 function my_setup(nsteps)
-    m = NewRivaraProductions.simpleMesh()
+    m = NewRivaraProductions.simpleTriangularMesh()
     mark_all_triangles_for_refinement(m)
     for i in 1:nsteps
         NewRivaraProductions.refine!(m)

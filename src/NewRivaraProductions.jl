@@ -6,6 +6,8 @@ using WriteVTK
 
 # Write your package code here.
 
+abstract type AbstractMesh end
+
 struct Node
     uvw::SVector{3,Float64}
     xyz::SVector{3,Float64}
@@ -22,17 +24,29 @@ end
 mutable struct Triangle
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
-    BR::Bool
     prev::Union{Base.RefValue{Triangle}, Nothing}
     next::Union{Base.RefValue{Triangle}, Nothing}
+    sons::Union{SVector{2,Base.RefValue{Triangle}}, Nothing}
 end
 
-mutable struct Mesh
+mutable struct Tetrahedron
+    faces::SVector{4,Base.RefValue{Triangle}}
+    MR::Bool
+    prev::Union{Base.RefValue{Tetrahedron}, Nothing}
+    next::Union{Base.RefValue{Tetrahedron}, Nothing}
+end
+
+mutable struct TriangularMesh <: AbstractMesh
     root_triangle::Base.RefValue{Triangle}
     nodes::Vector{Base.RefValue{Node}}
 end
 
-function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
+mutable struct TetrahedralMesh <: AbstractMesh
+    root_tetrahedron::Base.RefValue{Tetrahedron}
+    nodes::Vector{Base.RefValue{Node}}
+end
+
+function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
     dim, nnodes = size(coords)
     nconec, nelem = size(conec)
 
@@ -76,10 +90,11 @@ function Mesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
         triangles[i].prev = Ref(triangles[i-1])
     end
 
-    return Mesh(Ref(triangles[1]), nodes)
+    return TriangularMesh(Ref(triangles[1]), nodes)
+end
 end
 
-function simpleMesh()
+function simpleTriangularMesh()
     coords = transpose([0.0 0.0 0.0;
                         1.0 0.0 0.0;
                         1.0 1.0 0.0;
@@ -88,7 +103,7 @@ function simpleMesh()
     conec = transpose([1 2 3;
                        3 4 1])
 
-    return Mesh(coords, conec)
+    return TriangularMesh(coords, conec)
 end
 
 length(e::Base.RefValue{Edge}) = norm(e.x.nodes[1].x.xyz - e.x.nodes[2].x.xyz)
@@ -97,7 +112,7 @@ new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xy
 common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
 common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes_id, e2.x.nodes_id)
 
-isbroken(t::Triangle) = t.BR
+isbroken(t::Triangle) = !isnothing(t.sons)
 isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
 
 function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
@@ -161,7 +176,7 @@ end
 
 lk = ReentrantLock()
 
-function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
+function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Triangle)
     rt1 = Ref(t1)
     rt2 = Ref(t2)
     lock(lk) do
@@ -185,7 +200,7 @@ function add_new_triangles!(m::Mesh, tp::Triangle, t1::Triangle, t2::Triangle)
     return rt1, rt2
 end
 
-function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
+function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
         return false
@@ -224,7 +239,7 @@ function p1_mark_edges!(m::Mesh, triangle::Base.RefValue{Triangle})
 
 end
 
-function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
+function p2_bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
 
     edge.x.MR = false
 
@@ -247,7 +262,7 @@ function p2_bisect_edge!(m::Mesh, edge::Base.RefValue{Edge})
 
 end
 
-function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
+function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
         return false
@@ -257,7 +272,6 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(edge1)
         triangle.x.MR = false
-        triangle.x.BR = true
 
         edge4, edge5 = edge1.x.sons
 
@@ -271,13 +285,15 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
         v2_id = common_node_id(edge2, edge3)[]
         new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
-        triangle1 = Triangle([edge3, edge4, new_edge], false, false, nothing, nothing)
-        triangle2 = Triangle([edge5, edge2, new_edge], false, false, nothing, nothing)
+        triangle1 = Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing)
+        triangle2 = Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing)
 
         rt1, rt2 = add_new_triangles!(m, triangle.x, triangle1, triangle2)
 
         p3_bisect_triangle!(m, rt1)
         p3_bisect_triangle!(m, rt2)
+
+        triangle.x.sons = [rt1, rt2]
 
     end
 
@@ -285,7 +301,7 @@ function p3_bisect_triangle!(m::Mesh, triangle::Base.RefValue{Triangle})
 
 end
 
-function collect_all_triangles(m::Mesh)
+function collect_all_elements(m::TriangularMesh)
     node = m.root_triangle
     triangles = Vector{Base.RefValue{Triangle}}()
     while !isnothing(node)
@@ -295,14 +311,14 @@ function collect_all_triangles(m::Mesh)
     return triangles
 end
 
-function refine!(m::Mesh)
+function refine!(m::AbstractMesh)
 
     run = true
 
     while run
         run = false
 
-        l_triangles = collect_all_triangles(m)
+        l_triangles = collect_all_elements(m)
 
         edges_broken = true
         while edges_broken
@@ -324,7 +340,7 @@ function refine!(m::Mesh)
 
 end
 
-collect_all_nodes(m::Mesh) = m.nodes
+collect_all_nodes(m::TriangularMesh) = m.nodes
 get_conec(t::Triangle) = [n for n in 
     [
         common_node_id(t.edges[3], t.edges[1])[],
@@ -333,10 +349,10 @@ get_conec(t::Triangle) = [n for n in
     ]
 ]
 
-function write_vtk(m::Mesh, filename)
+function write_vtk(m::TriangularMesh, filename)
     nodes_vec = collect_all_nodes(m)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t.x)) for t in collect_all_triangles(m)]
+    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t.x)) for t in collect_all_elements(m)]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
