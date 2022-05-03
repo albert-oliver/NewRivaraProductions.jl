@@ -446,19 +446,14 @@ get_conec(t::Triangle) = [n for n in
 # Internally the conectivities are not in the usuar order, so we need to restore them, hence the [1, 3, 2, 4]
 get_conec(t::Tetrahedron) = mapreduce(t -> NewRivaraProductions.get_conec(t.x), union, t.faces)[[1, 3, 2, 4]]
 
-function write_vtk(m::TriangularMesh, filename)
-    nodes_vec = collect_all_nodes(m)
-    coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TRIANGLE, get_conec(t.x)) for t in collect_all_elements(m)]
-    vtk_grid(filename, coords, conec) do vtk
-        vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
-    end
-end
+get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
+get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
-function write_vtk(m::TetrahedralMesh, filename)
+function write_vtk(m::AbstractMesh, filename)
     nodes_vec = collect_all_nodes(m)
     coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
-    conec = [MeshCell(VTKCellTypes.VTK_TETRA, get_conec(t.x)) for t in collect_all_elements(m)]
+    vtk_cell_type = get_VTKCellType(m)
+    conec = [MeshCell(vtk_cell_type, get_conec(t.x)) for t in collect_all_elements(m)]
     vtk_grid(filename, coords, conec) do vtk
         vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
     end
