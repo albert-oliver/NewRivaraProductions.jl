@@ -295,28 +295,25 @@ function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
         return false
     end
 
-    e1, e2, e3 = get_sorted_edges(triangle.x)
+    edges = get_sorted_edges(triangle.x)
 
-    if (e2.x.MR && !isbroken(e2))
-        lock(lk) do # We don't want the other adjacent triangle to break e2 at the same time
-            if (!isbroken(e2)) 
-                p2_bisect_edge!(m, e2)
+    any_bisection = false
+    for e in edges
+        if (e.x.MR && !isbroken(e))
+            lock(lk) do # We don't want the other adjacent triangle to break e at the same time
+                if (!isbroken(e)) 
+                    p2_bisect_edge!(m, e)
+                end
             end
+            any_bisection = true
         end
     end
 
-    if (e3.x.MR && !isbroken(e3))
-        lock(lk) do # We don't want the other adjacent triangle to break e3 at the same time
-            if (!isbroken(e3)) 
-                p2_bisect_edge!(m, e3)
-            end
-        end
-    end
+    e1 = edges[1]
 
-
-    if (!isbroken(e1)) && (triangle.x.MR || e1.x.MR || isbroken(e2) || isbroken(e3))
+    if !isbroken(e1) && (triangle.x.MR || any(isbroken, edges[2:end]))
         lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
-            if (!isbroken(e1)) 
+            if !isbroken(e1) 
                 p2_bisect_edge!(m, e1)
             end
         end
@@ -324,7 +321,7 @@ function p1_mark_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
         return true
     end
 
-    return false
+    return any_bisection
 
 end
 
