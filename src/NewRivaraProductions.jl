@@ -292,7 +292,7 @@ function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Tri
     return rt1, rt2
 end
 
-function p1_bisect_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
+function prod_bisect_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
         return false
@@ -376,7 +376,7 @@ function bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle}, ed
     return rt1, rt2
 end
 
-function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
+function prod_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
 
     if isbroken(triangle.x)
         return false
@@ -387,8 +387,8 @@ function p3_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
     if isbroken(edge1)
         rt1, rt2 = bisect_triangle!(m, triangle, edge1, edge2, edge3)
 
-        p3_bisect_triangle!(m, rt1)
-        p3_bisect_triangle!(m, rt2)
+        prod_bisect_triangle!(m, rt1)
+        prod_bisect_triangle!(m, rt2)
     end
 
     return nothing
@@ -418,14 +418,14 @@ function refine!(m::AbstractMesh)
         while edges_broken
             edges_broken = false
             Threads.@threads for t in l_triangles
-                edges_broken |= p1_bisect_edges!(m, t)
+                edges_broken |= prod_bisect_edges!(m, t)
             end
             run |= edges_broken
         end
 
         if run
             Threads.@threads for t in l_triangles
-                p3_bisect_triangle!(m, t)
+                prod_bisect_triangle!(m, t)
             end
         end
     end
