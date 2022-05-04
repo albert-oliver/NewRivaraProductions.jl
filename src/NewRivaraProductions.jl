@@ -33,6 +33,7 @@ end
 mutable struct Tetrahedron <: AbstractElement
     faces::SVector{4,Base.RefValue{Triangle}}
     MR::Bool
+    BR::Bool
     prev::Union{Base.RefValue{Tetrahedron}, Nothing}
     next::Union{Base.RefValue{Tetrahedron}, Nothing}
 end
@@ -148,7 +149,7 @@ function TetrahedralMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{I
 
     for i in 1:nelem
         triangles = get_tetrahedron_triangles!(conec[:,i], triangles_per_node, edges_per_node, nodes)
-        tetrahedra[i] = Tetrahedron(triangles, false, nothing, nothing)
+        tetrahedra[i] = Tetrahedron(triangles, false, false, nothing, nothing)
     end
 
     for i in 1:Base.length(tetrahedra)-1
@@ -202,8 +203,14 @@ new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xy
 common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
 common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes_id, e2.x.nodes_id)
 
-isbroken(t::Triangle) = !isnothing(t.sons)
-isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
+isbroken(tri::Triangle) = !isnothing(tri.sons)
+isbroken(tri::Base.RefValue{Triangle}) = isbroken(tri.x)
+
+isbroken(e::Edge) = !isnothing(e.sons)
+isbroken(e::Base.RefValue{Edge}) = isbroken(e.x)
+
+isbroken(tet::Tetrahedron) = tet.BR
+isbroken(tet::Base.RefValue{Tetrahedron}) = isbroken(tet.x)
 
 # Usually, for a triangle to be nonconformal, it should not be broken
 # So the general function should be like this:
