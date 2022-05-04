@@ -204,6 +204,24 @@ common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.
 isbroken(t::Triangle) = !isnothing(t.sons)
 isbroken(e::Base.RefValue{Edge}) = !isnothing(e.x.sons)
 
+# Usually, for a triangle to be nonconformal, it should not be broken
+# So the general function should be like this:
+#
+#         isnonconformal(tri::Triangle) = !isbroken(tri) && any(isbroken, get_edges(tri))
+#
+# But since the algorithm already checks if the triangle is broken, we can ignore this condition
+isnonconformal(tri::Triangle) = any(isbroken, get_edges(tri))
+isnonconformal(tri::Base.RefValue{Triangle}) = isnonconformal(tri.x)
+
+# The remark for triangles also apply here
+# So, the general function should be like this:
+#
+#         isnonconformal(tet::Tetrahedron) = !isbroken(tet) && any(tri -> isbroken(tri) || isnonconformal(tri), get_triangles(tet))
+#
+# But since the algorithm already checks if the triangle is broken, we can ignore this condition
+isnonconformal(tet::Tetrahedron) = any(tri -> isbroken(tri) || isnonconformal(tri), get_triangles(tet))
+isnonconformal(tet::Base.RefValue{Tetrahedron}) = isnonconformal(tet.x)
+
 get_root(m::TetrahedralMesh) = m.root_tetrahedron
 get_root(m::TriangularMesh) = m.root_triangle
 
