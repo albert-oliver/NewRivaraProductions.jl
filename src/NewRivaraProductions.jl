@@ -348,11 +348,9 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
         return false
     end
 
-    edges = get_sorted_edges(element)
-
     # First of all we can bisect all the edges that are marked to be refined...
     any_bisection = false
-    for e in edges
+    for e in get_edges(element)
         if (e.x.MR && !isbroken(e))
             lock(lk) do # We don't want the other adjacent triangle to break e at the same time
                 if (!isbroken(e)) 
@@ -364,7 +362,7 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
     end
 
     # Then, we'll see if the longest edge needs to be refined (because the triangle is marked to be refined, or the element needs to be conformed)
-    e1 = edges[1]
+    e1 = get_max_edge(element)
 
     if !isbroken(e1) && (ismarkedforrefinement(element) || isnonconformal(element))
         lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
