@@ -399,8 +399,11 @@ function bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
 
 end
 
-function bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle}, edge1, edge2, edge3)
-    triangle.x.MR = false
+function bisect_triangle!(triangle::Triangle)
+
+    edge1, edge2, edge3 = get_sorted_edges(triangle)
+
+    triangle.MR = false
 
     edge4, edge5 = edge1.x.sons
 
@@ -422,24 +425,20 @@ function bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle}, ed
     return triangle1, triangle2
 end
 
-function prod_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
+function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
 
-    if isbroken(triangle.x)
+    if isbroken(triangle) || !isbroken(get_max_edge(triangle))
         return false
     end
 
-    edge1, edge2, edge3 = get_sorted_edges(triangle.x)
+    rt1, rt2 = bisect_triangle!(triangle)
 
-    if isbroken(edge1)
-        rt1, rt2 = bisect_triangle!(m, triangle, edge1, edge2, edge3)
-
-        prod_bisect_triangle!(m, rt1)
-        prod_bisect_triangle!(m, rt2)
-    end
     add_new_elements!(m, triangle, rt1, rt2)
 
-    return nothing
+    prod_bisect_element!(m, rt1.x)
+    prod_bisect_element!(m, rt2.x)
 
+    return true
 end
 
 function collect_all_elements(m::AbstractMesh)
@@ -472,7 +471,7 @@ function refine!(m::AbstractMesh)
 
         if run
             Threads.@threads for t in l_triangles
-                prod_bisect_triangle!(m, t)
+                prod_bisect_element!(m, t.x)
             end
         end
     end
