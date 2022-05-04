@@ -291,7 +291,14 @@ function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
     return false
 end
 
-get_edges(t::Triangle) = t.edges
+get_edges(tri::Triangle) = tri.edges
+get_edges(tri::Base.RefValue{Triangle}) = get_edges(tri.x)
+
+get_edges(tet::Base.RefValue{Tetrahedron}) = get_edges(tet.x)
+get_edges(tet::Tetrahedron) = mapreduce(tri -> NewRivaraProductions.get_edges(tri.x), union, get_triangles(tet))
+
+get_max_edge(element::AbstractElement) = maximum(get_edges(element))
+
 get_triangles(tet::Tetrahedron) = tet.faces
 
 function get_sorted_edges(triangle)
