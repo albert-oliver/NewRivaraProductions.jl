@@ -255,9 +255,8 @@ function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
     return false
 end
 
-function get_edges(t::Triangle)
-    return t.edges
-end
+get_edges(t::Triangle) = t.edges
+get_triangles(tet::Tetrahedron) = tet.faces
 
 function get_sorted_edges(triangle)
     edges = Vector{Base.RefValue{Edge}}(get_edges(triangle))
