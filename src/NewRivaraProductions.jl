@@ -318,28 +318,26 @@ end
 
 lk = ReentrantLock()
 
-function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Triangle)
-    rt1 = Ref(t1)
-    rt2 = Ref(t2)
+function add_new_elements!(m::AbstractMesh, tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) where T <: AbstractElement
     lock(lk) do
-        t1.prev = tp.prev
-        if !isnothing(t1.prev)
-            t1.prev.x.next = rt1
+        rt1.x.prev = tp.prev
+        if !isnothing(rt1.x.prev)
+            rt1.x.prev.x.next = rt1
         else
             m.root = rt1
         end
-        t1.next = rt2
-        t2.prev = rt1
-        t2.next = tp.next
-        if !isnothing(t2.next)
-            t2.next.x.prev = rt2
+        rt1.x.next = rt2
+        rt2.x.prev = rt1
+        rt2.x.next = tp.next
+        if !isnothing(rt2.x.next)
+            rt2.x.next.x.prev = rt2
         end
 
         # Clean (probably not needed)
         tp.prev = nothing
         tp.next = nothing
     end
-    return rt1, rt2
+    return nothing
 end
 
 function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
@@ -416,14 +414,12 @@ function bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle}, ed
     v2_id = common_node_id(edge2, edge3)[]
     new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
-    triangle1 = Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing)
-    triangle2 = Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing)
+    triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing))
+    triangle2 = Ref(Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing))
 
-    rt1, rt2 = add_new_triangles!(m, triangle.x, triangle1, triangle2)
+    triangle.sons = [triangle1, triangle2]
 
-    triangle.x.sons = [rt1, rt2]
-
-    return rt1, rt2
+    return triangle1, triangle2
 end
 
 function prod_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
@@ -440,6 +436,7 @@ function prod_bisect_triangle!(m::AbstractMesh, triangle::Base.RefValue{Triangle
         prod_bisect_triangle!(m, rt1)
         prod_bisect_triangle!(m, rt2)
     end
+    add_new_elements!(m, triangle, rt1, rt2)
 
     return nothing
 
