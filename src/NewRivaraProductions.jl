@@ -321,13 +321,13 @@ function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Tri
     return rt1, rt2
 end
 
-function prod_bisect_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
+function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
 
-    if isbroken(triangle.x)
+    if isbroken(element)
         return false
     end
 
-    edges = get_sorted_edges(triangle.x)
+    edges = get_sorted_edges(element)
 
     # First of all we can bisect all the edges that are marked to be refined...
     any_bisection = false
@@ -345,13 +345,13 @@ function prod_bisect_edges!(m::AbstractMesh, triangle::Base.RefValue{Triangle})
     # Then, we'll see if the longest edge needs to be refined (because the triangle is marked to be refined, or the element needs to be conformed)
     e1 = edges[1]
 
-    if !isbroken(e1) && (ismarkedforrefinement(triangle) || isnonconformal(triangle))
+    if !isbroken(e1) && (ismarkedforrefinement(element) || isnonconformal(element))
         lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
             if !isbroken(e1) 
                 bisect_edge!(m, e1)
             end
         end
-        triangle.x.MR = false
+        element.MR = false
         return true
     end
 
@@ -449,7 +449,7 @@ function refine!(m::AbstractMesh)
         while edges_broken
             edges_broken = false
             Threads.@threads for t in l_triangles
-                edges_broken |= prod_bisect_edges!(m, t)
+                edges_broken |= prod_bisect_edges!(m, t.x)
             end
             run |= edges_broken
         end
