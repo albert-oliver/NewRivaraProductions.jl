@@ -222,6 +222,17 @@ isnonconformal(tri::Base.RefValue{Triangle}) = isnonconformal(tri.x)
 isnonconformal(tet::Tetrahedron) = any(tri -> isbroken(tri) || isnonconformal(tri), get_triangles(tet))
 isnonconformal(tet::Base.RefValue{Tetrahedron}) = isnonconformal(tet.x)
 
+ismarkedforrefinement(e::Edge) = e.MR
+ismarkedforrefinement(e::Base.RefValue{Edge}) = ismarkedforrefinement(e.x)
+
+# Usually, to see if a triangle is marked to be refined it should check itself and its edges.
+# But, since the algorithm first bisects all the edges that are marked to be refined, we can ignore this second condition since it will always be false
+ismarkedforrefinement(tri::Triangle) = tri.MR # || any(ismarkedforrefinement, get_edges(tri))
+ismarkedforrefinement(tri::Base.RefValue{Triangle}) = ismarkedforrefinement(tri.x)
+
+ismarkedforrefinement(tet::Tetrahedron) = tet.MR || any(ismarkedforrefinement, get_triangles(tet))
+ismarkedforrefinement(tet::Base.RefValue{Tetrahedron}) = ismarkedforrefinement(tet.x)
+
 get_root(m::TetrahedralMesh) = m.root_tetrahedron
 get_root(m::TriangularMesh) = m.root_triangle
 
