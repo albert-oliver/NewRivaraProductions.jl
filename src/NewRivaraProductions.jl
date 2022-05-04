@@ -38,12 +38,12 @@ mutable struct Tetrahedron <: AbstractElement
 end
 
 mutable struct TriangularMesh <: AbstractMesh
-    root_triangle::Base.RefValue{Triangle}
+    root::Base.RefValue{Triangle}
     nodes::Vector{Base.RefValue{Node}}
 end
 
 mutable struct TetrahedralMesh <: AbstractMesh
-    root_tetrahedron::Base.RefValue{Tetrahedron}
+    root::Base.RefValue{Tetrahedron}
     nodes::Vector{Base.RefValue{Node}}
 end
 
@@ -234,8 +234,7 @@ ismarkedforrefinement(tri::Base.RefValue{Triangle}) = ismarkedforrefinement(tri.
 ismarkedforrefinement(tet::Tetrahedron) = tet.MR || any(ismarkedforrefinement, get_triangles(tet))
 ismarkedforrefinement(tet::Base.RefValue{Tetrahedron}) = ismarkedforrefinement(tet.x)
 
-get_root(m::TetrahedralMesh) = m.root_tetrahedron
-get_root(m::TriangularMesh) = m.root_triangle
+get_root(m::AbstractMesh) = m.root
 
 function Base.isless(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
 
@@ -305,7 +304,7 @@ function add_new_triangles!(m::AbstractMesh, tp::Triangle, t1::Triangle, t2::Tri
         if !isnothing(t1.prev)
             t1.prev.x.next = rt1
         else
-            m.root_triangle = rt1
+            m.root = rt1
         end
         t1.next = rt2
         t2.prev = rt1
