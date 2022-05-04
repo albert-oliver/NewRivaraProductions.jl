@@ -203,6 +203,14 @@ new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xy
 common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
 common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes_id, e2.x.nodes_id)
 
+common_nodes(tri1::Triangle, tri2::Triangle) = intersect(get_conec(tri1), get_conec(tri2))
+
+common_edges(tri1::Triangle, tri2::Triangle) = intersect(get_edges(tri1), get_edges(tri2))
+common_edges(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle}) = common_edges(tri1.x, tri2.x)
+
+have_one_common_edge(tri1::Triangle, tri2::Triangle) = Base.length(common_edges(tri1, tri2)) == 1
+have_one_common_edge(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle}) = have_one_common_edge(tri1.x, tri2.x)
+
 isbroken(tri::Triangle) = !isnothing(tri.sons)
 isbroken(tri::Base.RefValue{Triangle}) = isbroken(tri.x)
 
