@@ -7,6 +7,7 @@ using WriteVTK
 # Write your package code here.
 
 abstract type AbstractMesh end
+abstract type AbstractElement end
 
 struct Node
     uvw::SVector{3,Float64}
@@ -21,7 +22,7 @@ mutable struct Edge
     sons::Union{SVector{2,Base.RefValue{Edge}}, Nothing}
 end
 
-mutable struct Triangle
+mutable struct Triangle <: AbstractElement
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     prev::Union{Base.RefValue{Triangle}, Nothing}
@@ -29,7 +30,7 @@ mutable struct Triangle
     sons::Union{SVector{2,Base.RefValue{Triangle}}, Nothing}
 end
 
-mutable struct Tetrahedron
+mutable struct Tetrahedron <: AbstractElement
     faces::SVector{4,Base.RefValue{Triangle}}
     MR::Bool
     prev::Union{Base.RefValue{Tetrahedron}, Nothing}
