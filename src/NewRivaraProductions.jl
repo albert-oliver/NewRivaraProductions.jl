@@ -73,10 +73,10 @@ function get_tetrahedron_triangles!(conec, triangles_per_node, edges_per_node, n
     triangles = Vector{Base.RefValue{Triangle}}()
     sizehint!(triangles, 4)
 
-    tri_conecs = transpose([1 3 2;
-                            1 4 2;
+    tri_conecs = transpose([2 4 3;
                             1 3 4;
-                            2 4 3])
+                            2 1 4;
+                            1 2 3])
 
     for tri_conec in eachcol(conec[tri_conecs])
         n1, n2, n3 = tri_conec
@@ -187,12 +187,12 @@ function simpleTetrahedralMesh()
                         1.0 1.0 1.0;
                         0.0 1.0 1.0])
 
-    conec = transpose([1 7 2 3;
-                       1 7 6 2;
-                       1 7 5 6;
-                       1 7 8 5;
-                       1 7 4 8;
-                       1 7 3 4])
+    conec = transpose([2 3 1 7;
+                       6 2 1 7;
+                       5 6 1 7;
+                       8 5 1 7;
+                       4 8 1 7;
+                       3 4 1 7])
 
     return TetrahedralMesh(coords, conec)
 end
@@ -316,6 +316,26 @@ function get_sorted_edges(triangle)
     return circshift(edges, -(e_idx-1))
 end
 
+function get_sorted_faces(tetrahedron::Tetrahedron)
+    e1 = get_max_edge(tetrahedron)
+
+    face_contains_e1 = [any(isequal(e1), get_edges(tri)) for tri in get_triangles(tetrahedron)]
+
+    if (face_contains_e1[1] && face_contains_e1[2])
+        return tetrahedron.faces[[1, 2, 3, 4]]
+    elseif (face_contains_e1[1] && face_contains_e1[3])
+        return tetrahedron.faces[[3, 1, 2, 4]]
+    elseif (face_contains_e1[1] && face_contains_e1[4])
+        return tetrahedron.faces[[1, 4, 2, 3]]
+    elseif (face_contains_e1[2] && face_contains_e1[3])
+        return tetrahedron.faces[[2, 3, 1, 4]]
+    elseif (face_contains_e1[2] && face_contains_e1[4])
+        return tetrahedron.faces[[4, 2, 3, 1]]
+    elseif (face_contains_e1[3] && face_contains_e1[4])
+        return tetrahedron.faces[[3, 4, 1, 2]]
+    end
+end
+
 lk = ReentrantLock()
 
 function add_new_elements!(m::AbstractMesh, tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) where T <: AbstractElement
@@ -425,6 +445,34 @@ function bisect_triangle!(triangle::Triangle)
     return triangle1, triangle2
 end
 
+function bisect_tetrahedron!(tetrahedron::Tetrahedron)
+
+    face1, face2, face3, face4 = get_sorted_faces(tetrahedron)
+
+    face5, face7 = face1.x.sons
+    if !have_one_common_edge(face3, face5)
+        face5, face7 = face7, face5
+    end
+
+    face6, face8 = face2.x.sons
+    if !have_one_common_edge(face3, face6)
+        face6, face8 = face8, face6
+    end
+
+    # New face
+    e1 = common_edges(face6, face8)[]
+    e2 = common_edges(face5, face7)[]
+    e3 = common_edges(face3, face4)[]
+
+    new_face = Ref(Triangle([e1, e2, e3], false, nothing, nothing, nothing))
+
+    tet1 = Ref(Tetrahedron([face5, face6, face3, new_face], false, false, nothing, nothing))
+    tet2 = Ref(Tetrahedron([face7, face4, face8, new_face], false, false, nothing, nothing))
+
+    return tet1, tet2
+
+end
+
 function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
 
     if isbroken(triangle) || !isbroken(get_max_edge(triangle))
@@ -439,6 +487,37 @@ function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
     prod_bisect_element!(m, rt2.x)
 
     return true
+end
+
+function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
+
+    if isbroken(tetrahedron) || !isbroken(get_max_edge(tetrahedron))
+        return false
+    end
+
+    sorted_faces = get_sorted_faces(tetrahedron)
+
+    if !isbroken(sorted_faces[1])
+        lock(lk) do # We don't want the other adjacent tetrahedron to break the triangle at the same time
+            bisect_triangle!(sorted_faces[1].x)
+        end
+    end
+
+    if !isbroken(sorted_faces[2])
+        lock(lk) do # We don't want the other adjacent tetrahedron to break the triangle at the same time
+            bisect_triangle!(sorted_faces[2].x)
+        end
+    end
+    
+    tet1, tet2 = bisect_tetrahedron!(tetrahedron)
+
+    add_new_elements!(m, tetrahedron, tet1, tet2)
+
+    prod_bisect_element!(m, tet1.x)
+    prod_bisect_element!(m, tet2.x)
+
+    return true
+
 end
 
 function collect_all_elements(m::AbstractMesh)
@@ -481,6 +560,7 @@ function refine!(m::AbstractMesh)
 end
 
 collect_all_nodes(m::AbstractMesh) = m.nodes
+get_conec(t::Base.RefValue{Triangle}) = get_conec(t.x)
 get_conec(t::Triangle) = [n for n in 
     [
         common_node_id(t.edges[3], t.edges[1])[],
@@ -489,8 +569,14 @@ get_conec(t::Triangle) = [n for n in
     ]
 ]
 
-# Internally the conectivities are not in the usuar order, so we need to restore them, hence the [1, 3, 2, 4]
-get_conec(t::Tetrahedron) = mapreduce(t -> NewRivaraProductions.get_conec(t.x), union, t.faces)[[1, 3, 2, 4]]
+function get_conec(t::Tetrahedron)
+    [
+        mapreduce(get_conec, intersect, (t.faces[[2,3,4]]))[],
+        mapreduce(get_conec, intersect, (t.faces[[3,4,1]]))[],
+        mapreduce(get_conec, intersect, (t.faces[[4,1,2]]))[],
+        mapreduce(get_conec, intersect, (t.faces[[1,2,3]]))[]
+    ]
+end
 
 get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
 get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
