@@ -460,13 +460,13 @@ function refine!(m::AbstractMesh)
 
         l_triangles = collect_all_elements(m)
 
-        edges_broken = true
-        while edges_broken
-            edges_broken = false
+        edges_broken = trues(Threads.nthreads())
+        while any(edges_broken)
+            edges_broken .= false
             Threads.@threads for t in l_triangles
-                edges_broken |= prod_bisect_edges!(m, t.x)
+                edges_broken[Threads.threadid()] |= prod_bisect_edges!(m, t.x)
             end
-            run |= edges_broken
+            run |= any(edges_broken)
         end
 
         if run
