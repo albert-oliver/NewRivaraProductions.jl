@@ -303,7 +303,7 @@ get_edges(tri::Triangle) = tri.edges
 get_edges(tri::Base.RefValue{Triangle}) = get_edges(tri.x)
 
 get_edges(tet::Base.RefValue{Tetrahedron}) = get_edges(tet.x)
-get_edges(tet::Tetrahedron) = mapreduce(tri -> NewRivaraProductions.get_edges(tri.x), union, get_triangles(tet))
+get_edges(tet::Tetrahedron) = union(tet.faces[1].x.edges, tet.faces[2].x.edges, tet.faces[3].x.edges)
 
 get_max_edge(element::AbstractElement) = maximum(get_edges(element))
 
