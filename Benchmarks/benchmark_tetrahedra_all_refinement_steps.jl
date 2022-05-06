@@ -14,6 +14,7 @@ function test_refine(nsteps)
         mark_all_tetrahedra_for_refinement(m)
         NewRivaraProductions.refine!(m)
     end
+    return m
 end
 
 test_refine(1)
