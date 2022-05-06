@@ -52,8 +52,7 @@ function get_triangle_edges!(conec, edges_per_node, nodes)
     edges = Vector{Base.RefValue{Edge}}(undef, 3)
 
     for j in 1:3
-        n1 = conec[j]
-        n2 = conec[(j%3)+1]
+        n1, n2 = conec[circshift(1:3, -j)[1:2]]
         edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
         if isempty(edge)
             edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, 1, nothing))
@@ -169,8 +168,8 @@ function simpleTriangularMesh()
                         1.0 1.0 0.0;
                         0.0 1.0 0.0])
 
-    conec = transpose([1 2 3;
-                       3 4 1])
+    conec = transpose([2 3 1
+                       4 1 3])
 
     return TriangularMesh(coords, conec)
 end
@@ -438,7 +437,7 @@ function bisect_triangle!(triangle::Triangle)
     new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
     triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing))
-    triangle2 = Ref(Triangle([edge5, edge2, new_edge], false, nothing, nothing, nothing))
+    triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, nothing, nothing, nothing))
 
     triangle.sons = [triangle1, triangle2]
 
@@ -565,9 +564,9 @@ collect_all_nodes(m::AbstractMesh) = m.nodes
 get_conec(t::Base.RefValue{Triangle}) = get_conec(t.x)
 get_conec(t::Triangle) = [n for n in 
     [
+        common_node_id(t.edges[2], t.edges[3])[],
         common_node_id(t.edges[3], t.edges[1])[],
-        common_node_id(t.edges[1], t.edges[2])[],
-        common_node_id(t.edges[2], t.edges[3])[]
+        common_node_id(t.edges[1], t.edges[2])[]
     ]
 ]
 
