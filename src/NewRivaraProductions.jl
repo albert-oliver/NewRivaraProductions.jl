@@ -583,13 +583,37 @@ end
 get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
 get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
-function write_vtk(m::AbstractMesh, filename)
+function get_xyz_uvw(m::AbstractMesh)
     nodes_vec = collect_all_nodes(m)
-    coords = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
+    xyz = similar(nodes_vec[1].x.xyz, 3, Base.length(nodes_vec))
+    uvw = similar(xyz)
+    Threads.@threads for i in 1:Base.length(nodes_vec)
+        xyz[:,i] .= nodes_vec[i].x.xyz
+        uvw[:,i] .= nodes_vec[i].x.uvw
+    end
+    return xyz, uvw
+    # xyz = mapreduce(n -> n.x.xyz, hcat, nodes_vec)
+    # uvw = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
+    # return xyz, uvw
+end
+
+function get_VTKconecs(m::AbstractMesh) 
     vtk_cell_type = get_VTKCellType(m)
-    conec = [MeshCell(vtk_cell_type, get_conec(t.x)) for t in collect_all_elements(m)]
-    vtk_grid(filename, coords, conec) do vtk
-        vtk["uvw"] = mapreduce(n -> n.x.uvw, hcat, nodes_vec)
+    tetra = collect_all_elements(m)
+    vtkc1 = [MeshCell(vtk_cell_type, get_conec(tetra[1].x))]
+    vtk_conecs = similar(vtkc1,  Base.length(tetra))
+    Threads.@threads for i in 1:Base.length(vtk_conecs)
+        vtk_conecs[i] = MeshCell(vtk_cell_type, get_conec(tetra[i].x))
+    end
+    return vtk_conecs
+    # return [MeshCell(vtk_cell_type, get_conec(t.x)) for t in collect_all_elements(m)]
+end
+
+function write_vtk(m::AbstractMesh, filename)
+    coords, uvw = get_xyz_uvw(m)
+    vtk_conecs = get_VTKconecs(m)
+    vtk_grid(filename, coords, vtk_conecs) do vtk
+        vtk["uvw"] = uvw
     end
 end
 
