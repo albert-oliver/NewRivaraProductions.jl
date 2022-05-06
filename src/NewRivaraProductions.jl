@@ -570,12 +570,14 @@ get_conec(t::Triangle) = [n for n in
 ]
 
 function get_conec(t::Tetrahedron)
-    [
-        mapreduce(get_conec, intersect, (t.faces[[2,3,4]]))[],
-        mapreduce(get_conec, intersect, (t.faces[[3,4,1]]))[],
-        mapreduce(get_conec, intersect, (t.faces[[4,1,2]]))[],
-        mapreduce(get_conec, intersect, (t.faces[[1,2,3]]))[]
-    ]
+    nodes_ids = SMatrix{3,4,Int}(reduce(hcat, [union(f.x.edges[1].x.nodes_id, f.x.edges[2].x.nodes_id) for f in t.faces]))
+
+    return SVector{4,Int}(
+        intersect(nodes_ids[:,2], nodes_ids[:,3], nodes_ids[:,4])[],
+        intersect(nodes_ids[:,3], nodes_ids[:,4], nodes_ids[:,1])[],
+        intersect(nodes_ids[:,4], nodes_ids[:,1], nodes_ids[:,2])[],
+        intersect(nodes_ids[:,1], nodes_ids[:,2], nodes_ids[:,3])[],
+    )
 end
 
 get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
