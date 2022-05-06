@@ -1,11 +1,11 @@
 using NewRivaraProductions
 
-coords = transpose([0.0 0.0 0.0
-                    1.0 1.0 1.0
+coords = transpose([1.0 0.0 0.0
                     1.0 1.0 0.0
-                    1.0 0.0 0.0])
+                    0.0 0.0 0.0
+                    1.0 1.0 1.0])
 
-conec = transpose([2 1 3 4])
+conec = transpose([1 2 3 4])
 
 m = NewRivaraProductions.TetrahedralMesh(coords, conec)
 NewRivaraProductions.write_vtk(m, "tetrahedra_example1_0.vtu")

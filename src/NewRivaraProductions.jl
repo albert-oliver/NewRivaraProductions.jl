@@ -461,14 +461,14 @@ function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
     end
 
     # New face
-    e1 = common_edges(face6, face8)[]
-    e2 = common_edges(face5, face7)[]
-    e3 = common_edges(face3, face4)[]
+    e1 = common_edges(face3, face4)[]
+    e2 = common_edges(face6, face8)[]
+    e3 = common_edges(face5, face7)[]
 
     new_face = Ref(Triangle([e1, e2, e3], false, nothing, nothing, nothing))
 
-    tet1 = Ref(Tetrahedron([face5, face6, face3, new_face], false, false, nothing, nothing))
-    tet2 = Ref(Tetrahedron([face7, face4, face8, new_face], false, false, nothing, nothing))
+    tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, false, nothing, nothing))
+    tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, false, nothing, nothing))
 
     return tet1, tet2
 
