@@ -445,9 +445,11 @@ function bisect_triangle!(triangle::Triangle)
     return triangle1, triangle2
 end
 
-function bisect_tetrahedron!(tetrahedron::Tetrahedron)
+function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
 
-    face1, face2, face3, face4 = get_sorted_faces(tetrahedron)
+    tetrahedron.MR = false
+
+    face1, face2, face3, face4 = sorted_faces
 
     face5, face7 = face1.x.sons
     if !have_one_common_edge(face3, face5)
@@ -509,7 +511,7 @@ function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
         end
     end
     
-    tet1, tet2 = bisect_tetrahedron!(tetrahedron)
+    tet1, tet2 = bisect_tetrahedron!(tetrahedron, sorted_faces)
 
     add_new_elements!(m, tetrahedron, tet1, tet2)
 
