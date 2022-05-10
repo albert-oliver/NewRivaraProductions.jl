@@ -26,6 +26,7 @@ end
 mutable struct Triangle <: AbstractElement
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
+    @atomic BR::Bool
     prev::Union{Base.RefValue{Triangle}, Nothing}
     next::Union{Base.RefValue{Triangle}, Nothing}
     sons::Union{SVector{2,Base.RefValue{Triangle}}, Nothing}
@@ -85,7 +86,7 @@ function get_tetrahedron_triangles!(conec, triangles_per_node, edges_per_node, n
             []
         if isempty(triangle)
             edges = get_triangle_edges!(tri_conec[:], edges_per_node, nodes)
-            triangle = Ref(Triangle(edges, false, nothing, nothing, nothing))
+            triangle = Ref(Triangle(edges, false, false, nothing, nothing, nothing))
             push!(get!(triangles_per_node, n1, []), triangle)
             push!(get!(triangles_per_node, n2, []), triangle)
             push!(get!(triangles_per_node, n3, []), triangle)
@@ -95,7 +96,7 @@ function get_tetrahedron_triangles!(conec, triangles_per_node, edges_per_node, n
         push!(triangles, triangle)
     end
 
-        return triangles
+    return triangles
 end
 
 function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{Int})
@@ -116,7 +117,7 @@ function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{In
 
     for i in 1:nelem
         edges = get_triangle_edges!(conec[:,i], edges_per_node, nodes)
-        triangles[i] = Triangle(edges, false, nothing, nothing, nothing)
+        triangles[i] = Triangle(edges, false, false, nothing, nothing, nothing)
     end
 
     for i in 1:Base.length(triangles)-1
@@ -231,14 +232,14 @@ common_edges(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle}) = com
 have_one_common_edge(tri1::Triangle, tri2::Triangle) = Base.length(common_edges(tri1, tri2)) == 1
 have_one_common_edge(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle}) = have_one_common_edge(tri1.x, tri2.x)
 
-isbroken(tri::Triangle) = !isnothing(tri.sons)
+isbroken(tri::Triangle) = @atomic tri.BR
 isbroken(tri::Base.RefValue{Triangle}) = isbroken(tri.x)
 
 isbroken(e::Edge) = @atomic e.BR
 isbroken(e::Base.RefValue{Edge}) = isbroken(e.x)
 
-isbroken(tet::Tetrahedron) = tet.BR
-isbroken(tet::Base.RefValue{Tetrahedron}) = isbroken(tet.x)
+canbebroken(tri::Triangle) = (@atomicreplace tri.BR false => true)[2]
+canbebroken(tri::Base.RefValue{Triangle}) = canbebroken(tri.x)
 
 canbebroken(e::Edge) = (@atomicreplace e.BR false => true)[2]
 canbebroken(e::Base.RefValue{Edge}) = canbebroken(e.x)
@@ -448,8 +449,8 @@ function bisect_triangle!(triangle::Triangle)
     v2_id = common_node_id(edge2, edge3)
     new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, false, 2, nothing))
 
-    triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing))
-    triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, nothing, nothing, nothing))
+    triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, false, nothing, nothing, nothing))
+    triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, false, nothing, nothing, nothing))
 
     triangle.sons = [triangle1, triangle2]
 
@@ -481,7 +482,7 @@ function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
     @atomic e2.x.NA += 1
     @atomic e3.x.NA += 1
 
-    new_face = Ref(Triangle([e1, e2, e3], false, nothing, nothing, nothing))
+    new_face = Ref(Triangle([e1, e2, e3], false, false, nothing, nothing, nothing))
 
     tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, false, nothing, nothing))
     tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, false, nothing, nothing))
@@ -514,26 +515,30 @@ function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
 
     sorted_faces = get_sorted_faces(tetrahedron)
 
-    if !isbroken(sorted_faces[1])
-        lock(lk) do # We don't want the other adjacent tetrahedron to break the triangle at the same time
-            bisect_triangle!(sorted_faces[1].x)
+    if canbebroken(sorted_faces[1])
+        bisect_triangle!(sorted_faces[1].x)
+    end
+
+    if canbebroken(sorted_faces[2])
+        bisect_triangle!(sorted_faces[2].x)
+    end
+
+    tetbroken = false
+    while !tetbroken
+        if !isnothing(sorted_faces[1].x.sons) && !isnothing(sorted_faces[2].x.sons)
+            tetbroken = true
+            tet1, tet2 = bisect_tetrahedron!(tetrahedron, sorted_faces)
+
+            add_new_elements!(m, tetrahedron, tet1, tet2)
+
+            prod_bisect_element!(m, tet1.x)
+            prod_bisect_element!(m, tet2.x)
+
+            return true
         end
     end
 
-    if !isbroken(sorted_faces[2])
-        lock(lk) do # We don't want the other adjacent tetrahedron to break the triangle at the same time
-            bisect_triangle!(sorted_faces[2].x)
-        end
-    end
-    
-    tet1, tet2 = bisect_tetrahedron!(tetrahedron, sorted_faces)
-
-    add_new_elements!(m, tetrahedron, tet1, tet2)
-
-    prod_bisect_element!(m, tet1.x)
-    prod_bisect_element!(m, tet2.x)
-
-    return true
+    @assert false
 
 end
 
