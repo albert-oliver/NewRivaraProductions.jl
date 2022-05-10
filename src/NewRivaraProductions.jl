@@ -379,14 +379,10 @@ end
 
 function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
 
-    if isbroken(element)
-        return false
-    end
-
     # First of all we can bisect all the edges that are marked to be refined...
     any_bisection = false
     for e in get_edges(element)
-        if (e.x.MR && !isbroken(e))
+        if e.x.MR && !isbroken(e)
             lock(lk) do # We don't want the other adjacent triangle to break e at the same time
                 if (!isbroken(e)) 
                     bisect_edge!(m, e)
@@ -500,7 +496,7 @@ end
 
 function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
 
-    if isbroken(triangle) || !isbroken(get_max_edge(triangle))
+    if !isbroken(get_max_edge(triangle))
         return false
     end
 
@@ -516,7 +512,7 @@ end
 
 function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
 
-    if isbroken(tetrahedron) || !isbroken(get_max_edge(tetrahedron))
+    if !isbroken(get_max_edge(tetrahedron))
         return false
     end
 
