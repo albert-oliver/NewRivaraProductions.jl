@@ -199,12 +199,32 @@ end
 length(e::Base.RefValue{Edge}) = norm(e.x.nodes[1].x.xyz - e.x.nodes[2].x.xyz)
 new_coords(e::Base.RefValue{Edge}) = ((e.x.nodes[1]).x.xyz + (e.x.nodes[2]).x.xyz)/2
 
-common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes, e2.x.nodes)
-common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge}) = intersect(e1.x.nodes_id, e2.x.nodes_id)
+function common_node(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
+    for n1 in e1.x.nodes, n2 in e2.x.nodes
+        if n1 == n2
+            return [n1]
+        end
+    end
+    return Vector{Base.RefValue{Node}}()
+end
 
-common_nodes(tri1::Triangle, tri2::Triangle) = intersect(get_conec(tri1), get_conec(tri2))
+function common_node_id(e1::Base.RefValue{Edge}, e2::Base.RefValue{Edge})
+    for n1 in e1.x.nodes_id, n2 in e2.x.nodes_id
+        if n1 == n2
+            return n1
+        end
+    end
+    @assert false "common_node_id needs two edges that actually share a node"
+end
 
-common_edges(tri1::Triangle, tri2::Triangle) = intersect(get_edges(tri1), get_edges(tri2))
+function common_edges(tri1::Triangle, tri2::Triangle)
+    for e1 in tri1.edges, e2 in tri2.edges
+        if e1 == e2
+            return [e1]
+        end
+    end
+    return Vector{Base.RefValue{Edge}}()
+end
 common_edges(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle}) = common_edges(tri1.x, tri2.x)
 
 have_one_common_edge(tri1::Triangle, tri2::Triangle) = Base.length(common_edges(tri1, tri2)) == 1
@@ -302,7 +322,16 @@ get_edges(tri::Triangle) = tri.edges
 get_edges(tri::Base.RefValue{Triangle}) = get_edges(tri.x)
 
 get_edges(tet::Base.RefValue{Tetrahedron}) = get_edges(tet.x)
-get_edges(tet::Tetrahedron) = union(tet.faces[1].x.edges, tet.faces[2].x.edges, tet.faces[3].x.edges)
+function get_edges(tet::Tetrahedron)
+    edges = Vector{Base.RefValue{Edge}}()
+
+    for e in [tet.faces[1].x.edges tet.faces[2].x.edges tet.faces[3].x.edges]
+        if !any(isequal(e), edges)
+            push!(edges, e)
+        end
+    end
+    return SVector{6, Base.RefValue{Edge}}(edges)
+end
 
 get_max_edge(element::AbstractElement) = maximum(get_edges(element))
 
@@ -432,8 +461,8 @@ function bisect_triangle!(triangle::Triangle)
 
     v1 = common_node(edge4, edge5)[]
     v2 = common_node(edge2, edge3)[]
-    v1_id = common_node_id(edge4, edge5)[]
-    v2_id = common_node_id(edge2, edge3)[]
+    v1_id = common_node_id(edge4, edge5)
+    v2_id = common_node_id(edge2, edge3)
     new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
 
     triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing))
@@ -568,22 +597,29 @@ end
 
 collect_all_nodes(m::AbstractMesh) = m.nodes
 get_conec(t::Base.RefValue{Triangle}) = get_conec(t.x)
-get_conec(t::Triangle) = [n for n in 
-    [
-        common_node_id(t.edges[2], t.edges[3])[],
-        common_node_id(t.edges[3], t.edges[1])[],
-        common_node_id(t.edges[1], t.edges[2])[]
-    ]
+get_conec(t::Triangle) = [
+    common_node_id(t.edges[2], t.edges[3]),
+    common_node_id(t.edges[3], t.edges[1]),
+    common_node_id(t.edges[1], t.edges[2])
 ]
 
+function three_vector_intersect(a, b, c)
+    for m in a, n in b, t in c
+        if m == n == t
+            return m
+        end
+    end
+    @assert false "three_vector_intersect needs three vectors that actually share an element"
+end
+
 function get_conec(t::Tetrahedron)
-    nodes_ids = SMatrix{3,4,Int}(reduce(hcat, [union(f.x.edges[1].x.nodes_id, f.x.edges[2].x.nodes_id) for f in t.faces]))
+    nodes_ids = SMatrix{3,4,Int}(vcat([get_conec(f) for f in t.faces]...))
 
     return SVector{4,Int}(
-        intersect(nodes_ids[:,2], nodes_ids[:,3], nodes_ids[:,4])[],
-        intersect(nodes_ids[:,3], nodes_ids[:,4], nodes_ids[:,1])[],
-        intersect(nodes_ids[:,4], nodes_ids[:,1], nodes_ids[:,2])[],
-        intersect(nodes_ids[:,1], nodes_ids[:,2], nodes_ids[:,3])[],
+        three_vector_intersect(nodes_ids[:,2], nodes_ids[:,3], nodes_ids[:,4]),
+        three_vector_intersect(nodes_ids[:,3], nodes_ids[:,4], nodes_ids[:,1]),
+        three_vector_intersect(nodes_ids[:,4], nodes_ids[:,1], nodes_ids[:,2]),
+        three_vector_intersect(nodes_ids[:,1], nodes_ids[:,2], nodes_ids[:,3])
     )
 end
 
