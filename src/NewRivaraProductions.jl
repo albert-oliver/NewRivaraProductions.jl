@@ -388,7 +388,7 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
     any_bisection = false
     for e in get_edges(element)
         if e.x.MR && canbebroken(e)
-            bisect_edge!(m, e)
+            bisect_edge!(e)
             any_bisection = true
         end
     end
@@ -397,7 +397,7 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
     e1 = get_max_edge(element)
 
     if (ismarkedforrefinement(element) || isnonconformal(element)) && canbebroken(e1)
-        bisect_edge!(m, e1)
+        bisect_edge!(e1)
         return true
     end
 
@@ -405,24 +405,19 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
 
 end
 
-function bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
+function bisect_edge!(edge::Base.RefValue{Edge})
 
     edge.x.MR = false
 
     # Generate new node
     new_node = Ref(Node(new_coords(edge), new_coords(edge)))
 
-    new_node_id = Vector{Int}(undef, Threads.nthreads())
-
-    # Add the new node in the common vector and getting the id.
-    # We need to lock
-    @lock lk (push!(m.nodes, new_node); new_node_id[Threads.threadid()] = Base.length(m.nodes))
 
     # Generate the first new edge
-    edge1 = Ref(Edge([edge.x.nodes[1], new_node], [edge.x.nodes_id[1], new_node_id[Threads.threadid()]], false, false, edge.x.NA, nothing))
+    edge1 = Ref(Edge([edge.x.nodes[1], new_node], [edge.x.nodes_id[1], -99], false, false, edge.x.NA, nothing))
 
     # Generate the second new edge
-    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], [new_node_id[Threads.threadid()], edge.x.nodes_id[2]], false, false, edge.x.NA, nothing))
+    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], [-99, edge.x.nodes_id[2]], false, false, edge.x.NA, nothing))
 
     # Add the sons of the initial edge
     edge.x.sons = [edge1, edge2]
@@ -612,6 +607,30 @@ end
 get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
 get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
+function update_coordinates(m::AbstractMesh)
+    nodes_id = Dict{Base.RefValue{Node}, Int}()
+    for t in collect_all_elements(m)
+        for e in get_edges(t)
+            for i in 1:Base.length(e.x.nodes_id)
+                if e.x.nodes_id[i] < 0
+                    if haskey(nodes_id, e.x.nodes[i])
+                        kk = collect(e.x.nodes_id)
+                        kk[i] = nodes_id[e.x.nodes[i]]
+                        e.x.nodes_id = kk
+                    else
+                        push!(m.nodes, e.x.nodes[i])
+                        node_id = Base.length(m.nodes)
+                        kk = collect(e.x.nodes_id)
+                        kk[i] = node_id
+                        e.x.nodes_id = kk
+                        nodes_id[e.x.nodes[i]] = node_id
+                    end
+                end
+            end
+        end
+    end
+end
+
 function get_xyz_uvw(m::AbstractMesh)
     nodes_vec = collect_all_nodes(m)
     xyz = similar(nodes_vec[1].x.xyz, 3, Base.length(nodes_vec))
@@ -639,6 +658,7 @@ function get_VTKconecs(m::AbstractMesh)
 end
 
 function write_vtk(m::AbstractMesh, filename)
+    update_coordinates(m)
     coords, uvw = get_xyz_uvw(m)
     vtk_conecs = get_VTKconecs(m)
     vtk_grid(filename, coords, vtk_conecs) do vtk
