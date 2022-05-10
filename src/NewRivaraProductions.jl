@@ -18,7 +18,8 @@ mutable struct Edge
     nodes::SVector{2,Base.RefValue{Node}}
     nodes_id::SVector{2,Int}
     MR::Bool
-    NA::Int
+    @atomic BR::Bool
+    @atomic NA::Int
     sons::Union{SVector{2,Base.RefValue{Edge}}, Nothing}
 end
 
@@ -55,12 +56,12 @@ function get_triangle_edges!(conec, edges_per_node, nodes)
         n1, n2 = conec[circshift(1:3, -j)[1:2]]
         edge = haskey(edges_per_node, n1) && haskey(edges_per_node, n2) ? intersect(edges_per_node[n1], edges_per_node[n2]) : []
         if isempty(edge)
-            edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, 1, nothing))
+            edge = Ref(Edge([nodes[n1], nodes[n2]], [n1, n2], false, false, 1, nothing))
             push!(get!(edges_per_node, n1, []), edge)
             push!(get!(edges_per_node, n2, []), edge)
         else
             edge = edge[1]
-            edge.x.NA = edge.x.NA + 1
+            @atomic edge.x.NA += 1
         end
         edges[j] = edge
     end
@@ -233,11 +234,14 @@ have_one_common_edge(tri1::Base.RefValue{Triangle}, tri2::Base.RefValue{Triangle
 isbroken(tri::Triangle) = !isnothing(tri.sons)
 isbroken(tri::Base.RefValue{Triangle}) = isbroken(tri.x)
 
-isbroken(e::Edge) = !isnothing(e.sons)
+isbroken(e::Edge) = @atomic e.BR
 isbroken(e::Base.RefValue{Edge}) = isbroken(e.x)
 
 isbroken(tet::Tetrahedron) = tet.BR
 isbroken(tet::Base.RefValue{Tetrahedron}) = isbroken(tet.x)
+
+canbebroken(e::Edge) = (@atomicreplace e.BR false => true)[2]
+canbebroken(e::Base.RefValue{Edge}) = canbebroken(e.x)
 
 # A triangle or a tetrahedron is nonconformal if any of its edges is broken
 isnonconformal(tri::Triangle) = any(isbroken, get_edges(tri))
@@ -382,12 +386,8 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
     # First of all we can bisect all the edges that are marked to be refined...
     any_bisection = false
     for e in get_edges(element)
-        if e.x.MR && !isbroken(e)
-            lock(lk) do # We don't want the other adjacent triangle to break e at the same time
-                if (!isbroken(e)) 
-                    bisect_edge!(m, e)
-                end
-            end
+        if e.x.MR && canbebroken(e)
+            bisect_edge!(m, e)
             any_bisection = true
         end
     end
@@ -395,13 +395,8 @@ function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
     # Then, we'll see if the longest edge needs to be refined (because the triangle is marked to be refined, or the element needs to be conformed)
     e1 = get_max_edge(element)
 
-    if !isbroken(e1) && (ismarkedforrefinement(element) || isnonconformal(element))
-        lock(lk) do # We don't want the other adjacent triangle to break e1 at the same time
-            if !isbroken(e1) 
-                bisect_edge!(m, e1)
-            end
-        end
-        element.MR = false
+    if (ismarkedforrefinement(element) || isnonconformal(element)) && canbebroken(e1)
+        bisect_edge!(m, e1)
         return true
     end
 
@@ -416,14 +411,17 @@ function bisect_edge!(m::AbstractMesh, edge::Base.RefValue{Edge})
     # Generate new node
     new_node = Ref(Node(new_coords(edge), new_coords(edge)))
 
-    push!(m.nodes, new_node)
-    new_node_id = Base.length(m.nodes)
+    new_node_id = Vector{Int}(undef, Threads.nthreads())
+
+    # Add the new node in the common vector and getting the id.
+    # We need to lock
+    @lock lk (push!(m.nodes, new_node); new_node_id[Threads.threadid()] = Base.length(m.nodes))
 
     # Generate the first new edge
-    edge1 = Ref(Edge([edge.x.nodes[1], new_node], [edge.x.nodes_id[1], new_node_id], false, edge.x.NA, nothing))
+    edge1 = Ref(Edge([edge.x.nodes[1], new_node], [edge.x.nodes_id[1], new_node_id[Threads.threadid()]], false, false, edge.x.NA, nothing))
 
     # Generate the second new edge
-    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], [new_node_id, edge.x.nodes_id[2]], false, edge.x.NA, nothing))
+    edge2 = Ref(Edge([new_node, edge.x.nodes[2]], [new_node_id[Threads.threadid()], edge.x.nodes_id[2]], false, false, edge.x.NA, nothing))
 
     # Add the sons of the initial edge
     edge.x.sons = [edge1, edge2]
@@ -448,7 +446,7 @@ function bisect_triangle!(triangle::Triangle)
     v2 = common_node(edge2, edge3)[]
     v1_id = common_node_id(edge4, edge5)
     v2_id = common_node_id(edge2, edge3)
-    new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, 2, nothing))
+    new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, false, 2, nothing))
 
     triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, nothing, nothing, nothing))
     triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, nothing, nothing, nothing))
@@ -479,11 +477,9 @@ function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
     e2 = common_edges(face6, face8)[]
     e3 = common_edges(face5, face7)[]
 
-    lock(lk) do
-        e1.x.NA += 1
-        e2.x.NA += 1
-        e3.x.NA += 1
-    end
+    @atomic e1.x.NA += 1
+    @atomic e2.x.NA += 1
+    @atomic e3.x.NA += 1
 
     new_face = Ref(Triangle([e1, e2, e3], false, nothing, nothing, nothing))
 
