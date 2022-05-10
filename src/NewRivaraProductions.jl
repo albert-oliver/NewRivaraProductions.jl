@@ -239,22 +239,11 @@ isbroken(e::Base.RefValue{Edge}) = isbroken(e.x)
 isbroken(tet::Tetrahedron) = tet.BR
 isbroken(tet::Base.RefValue{Tetrahedron}) = isbroken(tet.x)
 
-# Usually, for a triangle to be nonconformal, it should not be broken
-# So the general function should be like this:
-#
-#         isnonconformal(tri::Triangle) = !isbroken(tri) && any(isbroken, get_edges(tri))
-#
-# But since the algorithm already checks if the triangle is broken, we can ignore this condition
+# A triangle or a tetrahedron is nonconformal if any of its edges is broken
 isnonconformal(tri::Triangle) = any(isbroken, get_edges(tri))
 isnonconformal(tri::Base.RefValue{Triangle}) = isnonconformal(tri.x)
 
-# The remark for triangles also apply here
-# So, the general function should be like this:
-#
-#         isnonconformal(tet::Tetrahedron) = !isbroken(tet) && any(tri -> isbroken(tri) || isnonconformal(tri), get_triangles(tet))
-#
-# But since the algorithm already checks if the triangle is broken, we can ignore this condition
-isnonconformal(tet::Tetrahedron) = any(tri -> isbroken(tri) || isnonconformal(tri), get_triangles(tet))
+isnonconformal(tet::Tetrahedron) = any(isbroken, get_edges(tet))
 isnonconformal(tet::Base.RefValue{Tetrahedron}) = isnonconformal(tet.x)
 
 ismarkedforrefinement(e::Edge) = e.MR
