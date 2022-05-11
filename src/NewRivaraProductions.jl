@@ -27,7 +27,6 @@ mutable struct Triangle <: AbstractElement
     edges::SVector{3,Base.RefValue{Edge}}
     MR::Bool
     @atomic BR::Bool
-    prev::Union{Base.RefValue{Triangle}, Nothing}
     next::Union{Base.RefValue{Triangle}, Nothing}
     sons::Union{SVector{2,Base.RefValue{Triangle}}, Nothing}
 end
@@ -36,7 +35,6 @@ mutable struct Tetrahedron <: AbstractElement
     faces::SVector{4,Base.RefValue{Triangle}}
     MR::Bool
     BR::Bool
-    prev::Union{Base.RefValue{Tetrahedron}, Nothing}
     next::Union{Base.RefValue{Tetrahedron}, Nothing}
 end
 
@@ -49,6 +47,22 @@ mutable struct TetrahedralMesh <: AbstractMesh
     root::Base.RefValue{Tetrahedron}
     nodes::Vector{Base.RefValue{Node}}
 end
+
+function Base.copy!(dst::Tetrahedron, src::Tetrahedron) 
+    dst.faces = src.faces
+    dst.MR = src.MR
+    dst.BR = src.BR
+    dst.next = src.next
+end
+
+function Base.copy!(dst::Triangle, src::Triangle) 
+    dst.edges = src.edges
+    dst.MR = src.MR
+    @atomic dst.BR = src.BR
+    dst.next = src.next
+    dst.sons = src.sons
+end
+
 
 function get_triangle_edges!(conec, edges_per_node, nodes)
     edges = Vector{Base.RefValue{Edge}}(undef, 3)
@@ -86,7 +100,7 @@ function get_tetrahedron_triangles!(conec, triangles_per_node, edges_per_node, n
             []
         if isempty(triangle)
             edges = get_triangle_edges!(tri_conec[:], edges_per_node, nodes)
-            triangle = Ref(Triangle(edges, false, false, nothing, nothing, nothing))
+            triangle = Ref(Triangle(edges, false, false, nothing, nothing))
             push!(get!(triangles_per_node, n1, []), triangle)
             push!(get!(triangles_per_node, n2, []), triangle)
             push!(get!(triangles_per_node, n3, []), triangle)
@@ -117,15 +131,11 @@ function TriangularMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{In
 
     for i in 1:nelem
         edges = get_triangle_edges!(conec[:,i], edges_per_node, nodes)
-        triangles[i] = Triangle(edges, false, false, nothing, nothing, nothing)
+        triangles[i] = Triangle(edges, false, false, nothing, nothing)
     end
 
     for i in 1:Base.length(triangles)-1
         triangles[i].next = Ref(triangles[i+1])
-    end
-
-    for i in 2:Base.length(triangles)
-        triangles[i].prev = Ref(triangles[i-1])
     end
 
     return TriangularMesh(Ref(triangles[1]), nodes)
@@ -150,15 +160,11 @@ function TetrahedralMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{I
 
     for i in 1:nelem
         triangles = get_tetrahedron_triangles!(conec[:,i], triangles_per_node, edges_per_node, nodes)
-        tetrahedra[i] = Tetrahedron(triangles, false, false, nothing, nothing)
+        tetrahedra[i] = Tetrahedron(triangles, false, false, nothing)
     end
 
     for i in 1:Base.length(tetrahedra)-1
         tetrahedra[i].next = Ref(tetrahedra[i+1])
-    end
-
-    for i in 2:Base.length(tetrahedra)
-        tetrahedra[i].prev = Ref(tetrahedra[i-1])
     end
 
     return TetrahedralMesh(Ref(tetrahedra[1]), nodes)
@@ -358,31 +364,19 @@ function get_sorted_faces(tetrahedron::Tetrahedron)
     end
 end
 
-lk = ReentrantLock()
+function add_new_elements!(tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) where T <: AbstractElement
 
-function add_new_elements!(m::AbstractMesh, tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) where T <: AbstractElement
-    lock(lk) do
-        rt1.x.prev = tp.prev
-        if !isnothing(rt1.x.prev)
-            rt1.x.prev.x.next = rt1
-        else
-            m.root = rt1
-        end
-        rt1.x.next = rt2
-        rt2.x.prev = rt1
-        rt2.x.next = tp.next
-        if !isnothing(rt2.x.next)
-            rt2.x.next.x.prev = rt2
-        end
+    rt2.x.next = tp.next
 
-        # Clean (probably not needed)
-        tp.prev = nothing
-        tp.next = nothing
-    end
+    copy!(tp, rt1.x)
+
+    tp.next = rt2
+
+
     return nothing
 end
 
-function prod_bisect_edges!(m::AbstractMesh, element::AbstractElement)
+function prod_bisect_edges!(element::AbstractElement)
 
     # First of all we can bisect all the edges that are marked to be refined...
     any_bisection = false
@@ -444,8 +438,8 @@ function bisect_triangle!(triangle::Triangle)
     v2_id = common_node_id(edge2, edge3)
     new_edge = Ref(Edge([v1, v2], [v1_id, v2_id], false, false, 2, nothing))
 
-    triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, false, nothing, nothing, nothing))
-    triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, false, nothing, nothing, nothing))
+    triangle1 = Ref(Triangle([edge3, edge4, new_edge], false, false, nothing, nothing))
+    triangle2 = Ref(Triangle([edge2, new_edge, edge5], false, false, nothing, nothing))
 
     triangle.sons = [triangle1, triangle2]
 
@@ -477,16 +471,16 @@ function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
     @atomic e2.x.NA += 1
     @atomic e3.x.NA += 1
 
-    new_face = Ref(Triangle([e1, e2, e3], false, false, nothing, nothing, nothing))
+    new_face = Ref(Triangle([e1, e2, e3], false, false, nothing, nothing))
 
-    tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, false, nothing, nothing))
-    tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, false, nothing, nothing))
+    tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, false, nothing))
+    tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, false, nothing))
 
     return tet1, tet2
 
 end
 
-function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
+function prod_bisect_element!(triangle::Triangle)
 
     if !isbroken(get_max_edge(triangle))
         return false
@@ -494,15 +488,15 @@ function prod_bisect_element!(m::AbstractMesh, triangle::Triangle)
 
     rt1, rt2 = bisect_triangle!(triangle)
 
-    add_new_elements!(m, triangle, rt1, rt2)
+    add_new_elements!(triangle, rt1, rt2)
 
-    prod_bisect_element!(m, rt1.x)
-    prod_bisect_element!(m, rt2.x)
+    prod_bisect_element!(triangle)
+    prod_bisect_element!(rt2.x)
 
     return true
 end
 
-function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
+function prod_bisect_element!(tetrahedron::Tetrahedron)
 
     if !isbroken(get_max_edge(tetrahedron))
         return false
@@ -524,10 +518,10 @@ function prod_bisect_element!(m::AbstractMesh, tetrahedron::Tetrahedron)
             tetbroken = true
             tet1, tet2 = bisect_tetrahedron!(tetrahedron, sorted_faces)
 
-            add_new_elements!(m, tetrahedron, tet1, tet2)
+            add_new_elements!(tetrahedron, tet1, tet2)
 
-            prod_bisect_element!(m, tet1.x)
-            prod_bisect_element!(m, tet2.x)
+            prod_bisect_element!(tetrahedron)
+            prod_bisect_element!(tet2.x)
 
             return true
         end
@@ -560,14 +554,14 @@ function refine!(m::AbstractMesh)
         while any(edges_broken)
             edges_broken .= false
             Threads.@threads for t in l_triangles
-                edges_broken[Threads.threadid()] |= prod_bisect_edges!(m, t.x)
+                edges_broken[Threads.threadid()] |= prod_bisect_edges!(t.x)
             end
             run |= any(edges_broken)
         end
 
         if run
             Threads.@threads for t in l_triangles
-                prod_bisect_element!(m, t.x)
+                prod_bisect_element!(t.x)
             end
         end
     end
