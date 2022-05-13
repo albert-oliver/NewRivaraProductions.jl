@@ -34,7 +34,6 @@ end
 mutable struct Tetrahedron <: AbstractElement
     faces::SVector{4,Base.RefValue{Triangle}}
     MR::Bool
-    BR::Bool
     next::Union{Base.RefValue{Tetrahedron}, Nothing}
 end
 
@@ -55,8 +54,8 @@ end
 function Base.copy!(dst::Tetrahedron, src::Tetrahedron) 
     dst.faces = src.faces
     dst.MR = src.MR
-    dst.BR = src.BR
     dst.next = src.next
+    return nothing
 end
 
 function Base.copy!(dst::Triangle, src::Triangle) 
@@ -65,9 +64,10 @@ function Base.copy!(dst::Triangle, src::Triangle)
     @atomic dst.BR = src.BR
     dst.next = src.next
     dst.sons = src.sons
+    return nothing
 end
 
-Base.iterate(i::AbstractElementIterator{T}) where T <: AbstractElement = (i.root.x, i.root)
+Base.iterate(i::AbstractElementIterator{<:AbstractElement}) = (i.root.x, i.root)
 
 function Base.iterate(_::AbstractElementIterator{T}, state::Base.RefValue{T}) where T <: AbstractElement 
     next = state.x.next
@@ -77,7 +77,7 @@ function Base.iterate(_::AbstractElementIterator{T}, state::Base.RefValue{T}) wh
     return (next.x, next)
 end
 
-Base.IteratorSize(_::AbstractElementIterator{T}) where T <: AbstractElement = Base.SizeUnknown()
+Base.IteratorSize(_::AbstractElementIterator{<:AbstractElement}) = Base.SizeUnknown()
 
 
 function get_triangle_edges!(conec, edges_per_node, nodes)
@@ -176,7 +176,7 @@ function TetrahedralMesh(coords::AbstractArray{Float64}, conec::AbstractMatrix{I
 
     for i in 1:nelem
         triangles = get_tetrahedron_triangles!(conec[:,i], triangles_per_node, edges_per_node, nodes)
-        tetrahedra[i] = Tetrahedron(triangles, false, false, nothing)
+        tetrahedra[i] = Tetrahedron(triangles, false, nothing)
     end
 
     for i in 1:Base.length(tetrahedra)-1
@@ -378,6 +378,8 @@ function get_sorted_faces(tetrahedron::Tetrahedron)
     elseif (face_contains_e1[3] && face_contains_e1[4])
         return tetrahedron.faces[[3, 4, 1, 2]]
     end
+
+    @assert false
 end
 
 function add_new_elements!(tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) where T <: AbstractElement
@@ -387,7 +389,6 @@ function add_new_elements!(tp::T, rt1::Base.RefValue{T}, rt2::Base.RefValue{T}) 
     copy!(tp, rt1.x)
 
     tp.next = rt2
-
 
     return nothing
 end
@@ -489,8 +490,8 @@ function bisect_tetrahedron!(tetrahedron::Tetrahedron, sorted_faces)
 
     new_face = Ref(Triangle([e1, e2, e3], false, false, nothing, nothing))
 
-    tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, false, nothing))
-    tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, false, nothing))
+    tet1 = Ref(Tetrahedron([face4, face7, new_face, face8], false, nothing))
+    tet2 = Ref(Tetrahedron([face3, face6, new_face, face5], false, nothing))
 
     return tet1, tet2
 
@@ -551,11 +552,12 @@ iterate_all_elements(m::AbstractMesh) = AbstractElementIterator{typeof(m.root.x)
 
 collect_all_elements(m::AbstractMesh) = append!(Vector{typeof(m.root.x)}(), iterate_all_elements(m))
 
-function collect_all_elements!(dst::AbstractVector{T}, m::AbstractMesh) where T <: AbstractElement
+function collect_all_elements!(dst::AbstractVector{<:AbstractElement}, m::AbstractMesh)
     l = Base.length(dst)
     empty!(dst)
     sizehint!(dst, 2*l)
     append!(dst, iterate_all_elements(m))
+    return nothing
 end
 
 function refine!(m::AbstractMesh)
@@ -619,7 +621,7 @@ end
 get_VTKCellType(_::TriangularMesh) = VTKCellTypes.VTK_TRIANGLE
 get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
-function update_coordinates(m::AbstractMesh)
+function update_coordinates!(m::AbstractMesh)
     nodes_id = Dict{Base.RefValue{Node}, Int}()
     for t in iterate_all_elements(m)
         for e in get_edges(t)
@@ -641,6 +643,7 @@ function update_coordinates(m::AbstractMesh)
             end
         end
     end
+    return nothing
 end
 
 function get_xyz_uvw(m::AbstractMesh)
@@ -670,12 +673,13 @@ function get_VTKconecs(m::AbstractMesh)
 end
 
 function write_vtk(m::AbstractMesh, filename)
-    update_coordinates(m)
+    update_coordinates!(m)
     coords, uvw = get_xyz_uvw(m)
     vtk_conecs = get_VTKconecs(m)
     vtk_grid(filename, coords, vtk_conecs) do vtk
         vtk["uvw"] = uvw
     end
+    return nothing
 end
 
 end
