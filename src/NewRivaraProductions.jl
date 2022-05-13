@@ -3,6 +3,7 @@ module NewRivaraProductions
 using LinearAlgebra
 using StaticArrays
 using WriteVTK
+using ThreadPools
 
 # Write your package code here.
 
@@ -520,21 +521,8 @@ function refine!(m::AbstractMesh)
 
         if run
 
-            # We create a vector of nthreads empty vectors.
-            new_elements = Vector{typeof(m.elements)}()
-            for _ in 1:Threads.nthreads()
-                push!(new_elements, empty(m.elements))
-            end
+            m.elements = vcat(ThreadPools.tmap(prod_bisect_element!, m.elements)...)
 
-            # In each vector a thread will collect all the elements that are produces by the prod_bisect_element!
-            # If the element is not refined, it just returns the element, but
-            # if the element is refined it returns all the new elements.
-            Threads.@threads for t in m.elements
-                append!(new_elements[Threads.threadid()], prod_bisect_element!(t))
-             end
-
-            # Finally, the elements in the mesh are replaced by the new elements
-            m.elements = vcat(new_elements...)
         end
     end
 
