@@ -3,6 +3,7 @@ module NewRivaraProductions
 using LinearAlgebra
 using StaticArrays
 using WriteVTK
+using ThreadsX
 
 # Write your package code here.
 
@@ -509,32 +510,12 @@ function refine!(m::AbstractMesh)
     while run
         run = false
 
-        edges_broken = trues(Threads.nthreads())
-        while any(edges_broken)
-            edges_broken .= false
-            Threads.@threads for t in m.elements
-                edges_broken[Threads.threadid()] |= prod_bisect_edges!(t)
-            end
-            run |= any(edges_broken)
+        while ThreadsX.mapreduce(prod_bisect_edges!, | , m.elements)
+            run = true
         end
 
         if run
-
-            # We create a vector of nthreads empty vectors.
-            new_elements = Vector{typeof(m.elements)}()
-            for _ in 1:Threads.nthreads()
-                push!(new_elements, empty(m.elements))
-            end
-
-            # In each vector a thread will collect all the elements that are produces by the prod_bisect_element!
-            # If the element is not refined, it just returns the element, but
-            # if the element is refined it returns all the new elements.
-            Threads.@threads for t in m.elements
-                append!(new_elements[Threads.threadid()], prod_bisect_element!(t))
-             end
-
-            # Finally, the elements in the mesh are replaced by the new elements
-            m.elements = vcat(new_elements...)
+            m.elements = vcat(ThreadsX.map(prod_bisect_element!, m.elements)...)
         end
     end
 
@@ -576,7 +557,7 @@ get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
 function update_coordinates!(m::AbstractMesh)
     nodes_id = Dict{Base.RefValue{Node}, Int}()
-    for t in iterate_all_elements(m)
+    for t in collect_all_elements(m)
         for e in get_edges(t)
             for i in 1:Base.length(e.x.nodes_id)
                 if e.x.nodes_id[i] < 0
