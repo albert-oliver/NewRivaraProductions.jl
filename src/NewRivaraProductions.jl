@@ -48,6 +48,10 @@ mutable struct TetrahedralMesh <: AbstractMesh
     nodes::Vector{Base.RefValue{Node}}
 end
 
+struct AbstractElementIterator{T}
+    root::Base.RefValue{T}
+end
+
 function Base.copy!(dst::Tetrahedron, src::Tetrahedron) 
     dst.faces = src.faces
     dst.MR = src.MR
@@ -62,6 +66,18 @@ function Base.copy!(dst::Triangle, src::Triangle)
     dst.next = src.next
     dst.sons = src.sons
 end
+
+Base.iterate(i::AbstractElementIterator{T}) where T <: AbstractElement = (i.root.x, i.root)
+
+function Base.iterate(_::AbstractElementIterator{T}, state::Base.RefValue{T}) where T <: AbstractElement 
+    next = state.x.next
+
+    isnothing(next) && return nothing
+
+    return (next.x, next)
+end
+
+Base.IteratorSize(_::AbstractElementIterator{T}) where T <: AbstractElement = Base.SizeUnknown()
 
 
 function get_triangle_edges!(conec, edges_per_node, nodes)
@@ -531,38 +547,40 @@ function prod_bisect_element!(tetrahedron::Tetrahedron)
 
 end
 
-function collect_all_elements(m::AbstractMesh)
-    node = get_root(m)
-    elements = Vector{typeof(node)}()
-    while !isnothing(node)
-        push!(elements, node)
-        node = node.x.next
-    end
-    return elements
+iterate_all_elements(m::AbstractMesh) = AbstractElementIterator{typeof(m.root.x)}(m.root)
+
+collect_all_elements(m::AbstractMesh) = append!(Vector{typeof(m.root.x)}(), iterate_all_elements(m))
+
+function collect_all_elements!(dst::AbstractVector{T}, m::AbstractMesh) where T <: AbstractElement
+    l = Base.length(dst)
+    empty!(dst)
+    sizehint!(dst, 2*l)
+    append!(dst, iterate_all_elements(m))
 end
 
 function refine!(m::AbstractMesh)
 
     run = true
 
+    l_triangles = collect_all_elements(m)
+
     while run
         run = false
-
-        l_triangles = collect_all_elements(m)
 
         edges_broken = trues(Threads.nthreads())
         while any(edges_broken)
             edges_broken .= false
             Threads.@threads for t in l_triangles
-                edges_broken[Threads.threadid()] |= prod_bisect_edges!(t.x)
+                edges_broken[Threads.threadid()] |= prod_bisect_edges!(t)
             end
             run |= any(edges_broken)
         end
 
         if run
             Threads.@threads for t in l_triangles
-                prod_bisect_element!(t.x)
+                prod_bisect_element!(t)
             end
+            collect_all_elements!(l_triangles, m)
         end
     end
 
@@ -603,7 +621,7 @@ get_VTKCellType(_::TetrahedralMesh) = VTKCellTypes.VTK_TETRA
 
 function update_coordinates(m::AbstractMesh)
     nodes_id = Dict{Base.RefValue{Node}, Int}()
-    for t in collect_all_elements(m)
+    for t in iterate_all_elements(m)
         for e in get_edges(t)
             for i in 1:Base.length(e.x.nodes_id)
                 if e.x.nodes_id[i] < 0
@@ -642,10 +660,10 @@ end
 function get_VTKconecs(m::AbstractMesh) 
     vtk_cell_type = get_VTKCellType(m)
     tetra = collect_all_elements(m)
-    vtkc1 = [MeshCell(vtk_cell_type, get_conec(tetra[1].x))]
+    vtkc1 = [MeshCell(vtk_cell_type, get_conec(tetra[1]))]
     vtk_conecs = similar(vtkc1,  Base.length(tetra))
     Threads.@threads for i in 1:Base.length(vtk_conecs)
-        vtk_conecs[i] = MeshCell(vtk_cell_type, get_conec(tetra[i].x))
+        vtk_conecs[i] = MeshCell(vtk_cell_type, get_conec(tetra[i]))
     end
     return vtk_conecs
     # return [MeshCell(vtk_cell_type, get_conec(t.x)) for t in collect_all_elements(m)]
