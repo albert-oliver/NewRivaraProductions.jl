@@ -7,7 +7,7 @@ suite = BenchmarkGroup()
 
 function mark_all_tetrahedra_for_refinement(m)
     for t in NewRivaraProductions.collect_all_elements(m)
-        t.x.MR = true
+        t.MR = true
     end
 end
 
